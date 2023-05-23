@@ -4,8 +4,20 @@ import subprocess
 
 CARLA_VERSION = "0.9.12"
 
+class Simulation(object):
+    """
+    A class that represents all commands to run the simulation.
+    """
+    def test(self):
+        from .app import Application
+        app = Application()
+        app.test_run()
+
 class Pipeline(object):
     CARLA_ROOT_PATH = os.path.join("lib", f"CARLA-{CARLA_VERSION}")
+
+    def __init__(self):
+        self.simulation = Simulation()
 
     def install_carla(self):
         """
@@ -48,11 +60,6 @@ class Pipeline(object):
 
         command = [server_executable, f"-dx11 -windowed -fps=24 -world-port={world_port} -carla-server -benchmark"]
         subprocess.Popen(command)
-
-    def test_run(self):
-        from .app import Application
-        app = Application()
-        app.test_run()
     
 def main():
     """
