@@ -18,6 +18,8 @@ class Lidar(SensorInterface):
         """
         self.world = world
         self.vehicle = vehicle
+        self.blueprint = None
+        self.sensor_actor = None
 
         # Find the blueprint for the lidar sensor.
         self.blueprint = blueprint_library.find('sensor.lidar.ray_cast')
@@ -35,7 +37,7 @@ class Lidar(SensorInterface):
         Parameters:
             transform (carla.Transform): The transform to place the sensor.
         """
-        self.sensor = self.world.spawn_actor(self.blueprint, transform, attach_to=self.vehicle)
+        self.sensor_actor = self.world.spawn_actor(self.blueprint, transform, attach_to=self.vehicle)
 
     def process_data(carla_data: carla.LidarMeasurement):
         """
@@ -62,14 +64,14 @@ class Lidar(SensorInterface):
         """
         self.blueprint.set_attribute(attribute, value)
 
-    def get_sensor(self):
+    def get_actor(self):
         """
         Get the sensor object.
 
         Returns:
             The sensor object.
         """
-        return self.sensor
+        return self.sensor_actor
 
     def listen(self, callback: callable):
         """
@@ -78,11 +80,11 @@ class Lidar(SensorInterface):
         Parameters:
             callback (function): The callback function. Should accept one argument - the data from the sensor.
         """
-        self.sensor.listen(callback)
+        self.sensor_actor.listen(callback)
 
     def destroy(self):
         """
         Clean up the sensor, stop it, and detach it from the vehicle.
         """
-        self.sensor.stop()
-        self.sensor.destroy()
+        self.sensor_actor.stop()
+        self.sensor_actor.destroy()

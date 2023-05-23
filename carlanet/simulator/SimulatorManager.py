@@ -13,106 +13,24 @@ class SimulatorManager:
             host (str): The IP address of the machine running the CARLA simulator. Defaults to 'localhost'.
             port (int): The port to use for the connection. Defaults to 2000.
         """
+        # Attributes
+        self.client = None
+        self.world = None
+        self.actors = []
+        self.blueprint_library = None
+
+        # Connect to CARLA simulator
         self.client = carla.Client(host, port)
         self.client.set_timeout(5.0)
-
         self.world = self.client.get_world()
+
         # Check if CARLA client is connected to server
         if self.world is None:
             print("Connection failed.")
             return
         print(f"Connection successful on {host}:{port}. CARLA version: {self.client.get_server_version()}")
+
         self.blueprint_library = self.world.get_blueprint_library()
-        self.actors = []
-
-    def spawn_vehicle(self, vehicle_type='model3') -> carla.Actor:
-        """
-        Spawns a vehicle in the simulation.
-
-        Args:
-            vehicle_type (str): Type of vehicle to spawn. Defaults to 'model3'.
-
-        Returns:
-            carla.Actor: The spawned vehicle actor.
-        """
-        vehicle_bp = self.blueprint_library.filter(vehicle_type)[0]
-        spawn_points = self.world.get_map().get_spawn_points()
-        spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
-        vehicle = self.world.spawn_actor(vehicle_bp, spawn_point)
-        self.actors.append(vehicle)
-        return vehicle
-
-    # TODO: Consider this function to be in their own class
-    # def spawn_sensor(self, sensor_type, sensor_callback, parent_actor, sensor_transform=None) -> carla.Actor:
-    #     """
-    #     Spawns a sensor and attaches it to a parent actor.
-
-    #     Args:
-    #         sensor_type (str): Type of sensor to spawn.
-    #         sensor_callback (function): Function to call when the sensor captures data.
-    #         parent_actor (carla.Actor): Actor to attach the sensor to.
-
-    #     Returns:
-    #         carla.Actor: The spawned sensor actor.
-    #     """
-    #     sensor_bp = self.blueprint_library.filter(sensor_type)[0]
-    #     if sensor_transform is None:
-    #         sensor_location = carla.Location(x=1.5, z=2.4)
-    #         sensor_rotation = carla.Rotation(pitch=-15)
-    #         sensor_transform = carla.Transform(sensor_location, sensor_rotation)
-    #     sensor = self.world.spawn_actor(sensor_bp, sensor_transform, attach_to=parent_actor)
-    #     sensor.listen(sensor_callback)
-    #     self.actors.append(sensor)
-    #     return sensor
-
-    def spawn_sensor(self, sensor_type:SensorInterface, vehicle:carla.Actor, transform:carla.Transform=None, callback=None) -> carla.Actor:
-        """
-        Spawns a sensor and attaches it to a parent actor.
-
-        Args:
-            sensor_type (SensorInterface): Type of sensor to spawn.
-            vehicle (carla.Actor): Actor to attach the sensor to.
-            transform (carla.Transform, optional): Transform to place the sensor at. Defaults to None.
-            callback (function, optional): Function to call when the sensor captures data. Defaults to None.
-
-        Returns:
-            carla.Actor: The spawned sensor actor.
-        """
-        # Instantiate sensor
-        sensor = sensor_type(self.world, self.blueprint_library, vehicle)
-
-        # Set up sensor
-        if transform is None:
-            sensor_location = carla.Location(x=1.5, z=2.4)
-            sensor_rotation = carla.Rotation(pitch=-15)
-            transform = carla.Transform(sensor_location, sensor_rotation)
-        sensor.setup_sensor(transform)
-
-        # Add sensor to list of actors
-        self.actors.append(sensor.get_sensor())
-
-        # Listen to sensor
-        if callback is not None:
-            sensor.listen(callback)
-
-        return sensor
-
-    def apply_control(self, vehicle, throttle=0.0, steer=0.0, brake=0.0, reverse=False, hand_brake=False, manual_gear_shift=False, gear=1):
-        """
-        Applies control to an actor.
-
-        Args:
-            vehicle (carla.Actor): The actor to apply control to.
-            throttle (float): Throttle value to apply. Defaults to 0.0.
-            steer (float): Steer value to apply. Defaults to 0.0.
-            brake (float): Brake value to apply. Defaults to 0.0.
-            reverse (bool): Whether to move in reverse. Defaults to False.
-            hand_brake (bool): Whether to apply the hand brake. Defaults to False.
-            manual_gear_shift (bool): Whether to enable manual gear shift. Defaults to False.
-            gear (int): Gear to set, if manual gear shift is enabled. Defaults to 1.
-        """
-        control = carla.VehicleControl(throttle=throttle, steer=steer, brake=brake, reverse=reverse, hand_brake=hand_brake, manual_gear_shift=manual_gear_shift, gear=gear)
-        vehicle.apply_control(control)
 
     def move_spectator(self, actor):
         """
@@ -148,3 +66,12 @@ class SimulatorManager:
             carla.World: The world.
         """
         return self.world
+    
+    def add_actor(self, actor:carla.Actor):
+        """
+        Adds an actor to the list of actors.
+
+        Args:
+            actor (carla.Actor): The actor to add.
+        """
+        self.actors.append(actor)

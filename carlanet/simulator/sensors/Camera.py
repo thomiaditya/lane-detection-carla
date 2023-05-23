@@ -15,19 +15,18 @@ class Camera(SensorInterface):
 
         The sensor is not set up yet after initialization. Call setup_sensor to set it up.
         """
-        # Find the blueprint for the sensor
-        self.blueprint = blueprint_library.find('sensor.camera.rgb')
+        # Attributes
+        self.blueprint = None
+        self.world = world
+        self.vehicle = vehicle
+        self.sensor_actor = None
 
         # Set sensor attributes
+        self.blueprint = blueprint_library.find('sensor.camera.rgb')
         self.blueprint.set_attribute('image_size_x', '800')
         self.blueprint.set_attribute('image_size_y', '600')
         self.blueprint.set_attribute('fov', '110')
         
-        # Save other parameters
-        self.world = world
-        self.vehicle = vehicle
-        self.sensor = None
-
     def set_blueprint_attribute(self, attribute: str, value: str):
         """
         Set an attribute of the blueprint.
@@ -44,7 +43,7 @@ class Camera(SensorInterface):
         """
 
         # Set up the sensor
-        self.sensor = self.world.spawn_actor(self.blueprint, transform, attach_to=self.vehicle)
+        self.sensor_actor = self.world.spawn_actor(self.blueprint, transform, attach_to=self.vehicle)
 
     def process_data(carla_data: carla.Image) -> np.ndarray:
         """
@@ -74,20 +73,20 @@ class Camera(SensorInterface):
         Args:
             callback (function): The function to call when data is captured.
         """
-        return self.sensor.listen(callback)
+        return self.sensor_actor.listen(callback)
     
-    def get_sensor(self) -> carla.Actor:
+    def get_actor(self) -> carla.Actor:
         """
         Get the sensor object.
 
         Returns:
             carla.Actor: The sensor object.
         """
-        return self.sensor
+        return self.sensor_actor
 
     def destroy(self):
         """
         Clean up the sensor. Stop it and detach it from the vehicle.
         """
-        self.sensor.destroy()
-        self.sensor = None
+        self.sensor_actor.destroy()
+        self.sensor_actor = None
