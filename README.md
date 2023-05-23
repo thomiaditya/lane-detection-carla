@@ -10,19 +10,23 @@ Our goal with CarlaNet is to provide a structured, flexible, and easy-to-use pla
 
 To set up the necessary environment for this project:
 
-1. Install CARLA. Instructions for installing CARLA can be found [here](https://carla.readthedocs.io/en/latest/start_quickstart/).
-
-2. Clone this repository.
+1. Clone this repository.
 
 ```bash
 git clone https://gitlab.com/skripsi11421/carlanet.git
 cd carlanet
 ```
 
-3. Install the project along with its dependencies using the provided setup script.
+2. Install the project along with its dependencies using the provided setup script.
 
 ```bash
 pip install .
+```
+
+3. Install CARLA Simulator using this script.
+    
+```bash
+carlanet install_carla
 ```
 
 ## Usage
