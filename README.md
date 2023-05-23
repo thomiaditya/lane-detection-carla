@@ -15,7 +15,7 @@ To set up the necessary environment for this project:
 2. Clone this repository.
 
 ```bash
-git clone https://gitlab.com/<username>/carlanet.git
+git clone https://gitlab.com/skripsi11421/carlanet.git
 cd carlanet
 ```
 
@@ -39,6 +39,6 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ## Contact
 
-Your Name - example@gmail.com
+Your Name - [thomiaditya@gmail.com](mailto:thomiaditya@gmail.com)
 
-Project Link: [https://gitlab.com/<username>/carlanet](https://gitlab.com/<username>/carlanet)
+Project Link: [https://gitlab.com/skripsi11421/carlanet](https://gitlab.com/skripsi11421/carlanet)
