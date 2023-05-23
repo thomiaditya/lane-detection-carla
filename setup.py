@@ -18,7 +18,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "carlanet=carlanet.main:main"
+            "carlanet=carlanet.app:main"
         ]
     },
     classifiers=[

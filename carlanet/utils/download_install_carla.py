@@ -3,6 +3,7 @@ import requests
 import zipfile
 import sys
 import subprocess
+import time
 from alive_progress import alive_bar
 
 def _extract_with_logging(zip_path, extract_path):
@@ -13,8 +14,8 @@ def _extract_with_logging(zip_path, extract_path):
         with alive_bar(total_files, title="Extracting", bar=None, spinner="dots_waves", stats=" {rate}") as bar:
             for i, file in enumerate(file_list, start=1):
                 zip_ref.extract(file, extract_path)
+                bar.text(f" {file}")
                 bar()
-                print(f"Extracted {file}")
 
 def _download_carla_package(carla_version, platform):
     filename = f"CARLA_{carla_version}_{platform}.zip"
@@ -23,10 +24,10 @@ def _download_carla_package(carla_version, platform):
     if os.path.exists(filename):
         print("CARLA package already downloaded.")
         return filename
-    
+
     print("Downloading CARLA package...")
     package_url = f"https://carla-releases.s3.eu-west-3.amazonaws.com/{platform}/CARLA_{carla_version}.zip"
-    
+
     with requests.Session() as session:
         response = session.get(package_url, stream=True)
         response.raise_for_status()
@@ -36,15 +37,23 @@ def _download_carla_package(carla_version, platform):
         chunk_size = 8192
 
         with open(temp_file, "wb") as f:
-            with alive_bar(total_size // chunk_size, title="Downloading") as bar:
+            with alive_bar(total_size // chunk_size, title="Downloading", stats="{eta}") as bar:
+                downloaded = 0
+                start_time = time.time()
                 for chunk in response.iter_content(chunk_size):
                     f.write(chunk)
-                    bar()
-    
-    # Change file name to indicate it has been downloaded
-    os.rename(temp_file, filename)
+                    downloaded += len(chunk)
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time > 0:
+                        download_speed = downloaded / elapsed_time / 1024
+                        bar.text(' {0:.2f} KB/s'.format(download_speed))
+                        bar()
+
+        # Change file name to indicate it has been downloaded
+        os.rename(temp_file, filename)
+
     print("CARLA package downloaded successfully.")
-    return temp_file
+    return filename
 
 def _extract_carla_package(temp_file):
     print("Extracting CARLA package...")
@@ -68,6 +77,15 @@ def _install_python_dependencies(carla_version):
     print("CARLA client library installed successfully.")
 
 def execute(carla_version):
+    # Get current file path
+    current_file_path = os.path.dirname(os.path.realpath(__file__))
+    
+    # Get project root path from current file path. Keep going up one directory until we find the "setup.py" file.
+    while not os.path.exists(os.path.join(current_file_path, "setup.py")):
+        current_file_path = os.path.dirname(current_file_path)
+    
+    # Change current working directory to project root path
+    os.chdir(current_file_path)
 
     # Check if CARLA setup has already been completed
     if os.path.exists(f"lib/CARLA-{carla_version}/INSTALL"):
@@ -75,15 +93,16 @@ def execute(carla_version):
         print("CARLA setup has already been completed.")
         return
 
-    print("Starting CARLA setup...")
+    print(f"Starting CARLA setup for version {carla_version}...")
     platform = "Linux" if sys.platform.startswith("linux") else "Windows"
     temp_file = _download_carla_package(carla_version, platform)
     _extract_carla_package(temp_file)
     _remove_temp_file(temp_file)
-    _install_python_dependencies(carla_version)
 
     # Change name of extracted folder to "CARLA-{version}"
     os.rename(f"lib/WindowsNoEditor", f"lib/CARLA-{carla_version}")
+
+    _install_python_dependencies(carla_version)
 
     # Create indicator file to indicate that CARLA setup has been completed
     with open(f"lib/CARLA-{carla_version}/INSTALL", "w") as f:
