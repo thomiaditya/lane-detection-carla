@@ -48,7 +48,7 @@ class SensorInterface:
         """
         raise NotImplementedError
     
-    def get_sensor(self):
+    def get_actor(self) -> carla.Actor:
         """
         Get the sensor object.
 
