@@ -53,6 +53,15 @@ class Pipeline(object):
         Args:
             world_port (int, optional): The world port. Defaults to 2000.
         """
+        current_file_path = os.path.dirname(os.path.realpath(__file__))
+    
+        # Get project root path from current file path. Keep going up one directory until we find the "setup.py" file.
+        while not os.path.exists(os.path.join(current_file_path, "setup.py")):
+            current_file_path = os.path.dirname(current_file_path)
+        
+        # Change current working directory to project root path
+        os.chdir(current_file_path)
+
         server_executable = os.path.join(self.CARLA_ROOT_PATH, "CarlaUE4.exe")
         if not os.path.exists(server_executable):
             print(f"Could not find CarlaUE4.exe at {server_executable}. Please check your CARLA installation.")
@@ -60,6 +69,7 @@ class Pipeline(object):
 
         command = [server_executable, f"-dx11 -windowed -fps=24 -world-port={world_port} -carla-server -benchmark"]
         subprocess.Popen(command)
+        print(f"CARLA server started on port {world_port}.")
     
 def main():
     """
