@@ -2,10 +2,22 @@ import carla
 import time
 import cv2
 import numpy as np
+import functools
 from .simulator.SimulatorManager import SimulatorManager
+from .simulator.Vehicle import Vehicle
 from .simulator.sensors.Camera import Camera
 from .simulator.sensors.DepthCamera import DepthCamera
 from .simulator.sensors.Lidar import Lidar
+
+def handle_keyboard_interrupt(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except KeyboardInterrupt:
+            print("KeyboardInterrupt detected. Exiting gracefully...")
+            self.cleanup()  # Call the cleanup method of the instance
+    return wrapper
 
 class Application:
     """
@@ -33,12 +45,13 @@ class Application:
 
         self.handle_cleanup()
 
+    @handle_keyboard_interrupt
     def test_run(self):
         """
         Runs the test application flow.
         """
         # Spawn a vehicle
-        vehicle = self.sm.spawn_vehicle()
+        vehicle = Vehicle(self.sm, vehicle_type='model3')
 
         # Spawn a camera sensor and attach it to the vehicle
         # def camera_callback(image):
@@ -49,46 +62,41 @@ class Application:
         #     cv2.waitKey(1)
         #     # print(f"Camera captured an image at timestamp {image.timestamp}")
 
-        # self.sm.spawn_sensor(Camera, vehicle=vehicle, callback=camera_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
+        # vehicle.attach_sensor(Camera, callback=camera_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
 
         # Spawn a depth camera sensor and attach it to the vehicle
-        # def depth_camera_callback(image):
-        #     # Convert image to OpenCV format
-        #     frame = DepthCamera.process_data(image)
-        #     print(frame.shape)
-        #     cv2.imshow("", frame)
-        #     cv2.waitKey(1)
-        #     # print(f"Camera captured an image at timestamp {image.timestamp}")
+        def depth_camera_callback(image):
+            # Convert image to OpenCV format
+            frame = DepthCamera.process_data(image)
+            print(frame.shape)
+            cv2.imshow("", frame)
+            cv2.waitKey(1)
+            # print(f"Camera captured an image at timestamp {image.timestamp}")
 
-        # self.sm.spawn_sensor(DepthCamera, vehicle=vehicle, callback=depth_camera_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
+        vehicle.attach_sensor(DepthCamera, callback=depth_camera_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
 
         # Spawn a lidar sensor and attach it to the vehicle
-        def lidar_callback(data):
-            # Convert data to OpenCV format
-            frame = Lidar.process_data(data)
-            # print(frame.shape)
-            # print(f"Lidar captured data at timestamp {data.timestamp}")
+        # def lidar_callback(data):
+        #     # Convert data to OpenCV format
+        #     frame = Lidar.process_data(data)
+        #     # print(frame.shape)
+        #     # print(f"Lidar captured data at timestamp {data.timestamp}")
 
-        self.sm.spawn_sensor(Lidar, vehicle=vehicle, callback=lidar_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
+        # self.sm.spawn_sensor(Lidar, vehicle=vehicle, callback=lidar_callback, transform=carla.Transform(carla.Location(x=1.5, z=2.4), carla.Rotation(pitch=-15)))
 
         # Move the spectator to the vehicle
-        self.sm.move_spectator(vehicle)
+        self.sm.move_spectator(vehicle.get_actor())
 
         # Run the simulation for a certain duration
-        simulation_duration = 10  # seconds
+        simulation_duration = 60  # seconds
         start_time = time.time()
         while time.time() - start_time < simulation_duration:
             # Apply control to the vehicle (e.g., throttle, steering, etc.)
-            self.sm.apply_control(vehicle, throttle=0.5)
+            vehicle.apply_control(throttle=0.5)
             time.sleep(0.1)
-
-        # Cleanup
-        self.handle_cleanup()
     
-    def handle_cleanup(self):
+    def cleanup(self):
         """
         Cleans up the simulation.
         """
-        # If user presses Ctrl+C, the simulation will be cleaned up
-        if KeyboardInterrupt:
-            self.sm.destroy()
+        self.sm.destroy()
