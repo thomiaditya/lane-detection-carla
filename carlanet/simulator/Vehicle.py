@@ -1,5 +1,6 @@
 import random
 import carla
+import numpy as np
 from .SensorInterface import SensorInterface
 from .SimulatorManager import SimulatorManager
 
@@ -31,6 +32,10 @@ class Vehicle:
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
 
         self.vehicle_actor = self.world.spawn_actor(vehicle_bp, spawn_point)
+        print(f"Vehicle spawned at {spawn_point}.")
+
+        if self.simulator_manager.check_sync_mode():
+            self.world.tick()
 
         # Add the actor to the list of actors in the simulator manager
         self.simulator_manager.add_actor(self.vehicle_actor)
@@ -61,8 +66,18 @@ class Vehicle:
         # Listen to sensor
         if callback is not None:
             sensor.listen(callback)
+    
+    def get_velocity(self):
+        """
+        Returns the velocity of the vehicle.
 
-    def apply_control(self, throttle: float = 0.0, steer: float = 0.0, brake: float = 0.0, reverse: bool = False, hand_brake: bool = False, manual_gear_shift: bool = False, gear: int = 1):
+        Returns:
+            float: The velocity of the vehicle.
+        """
+        velocity = self.vehicle_actor.get_velocity()
+        return np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+
+    def apply_control(self, throttle: float = 0.0, steer: float = 0.0, brake: float = 0.0, reverse: bool = False, hand_brake: bool = False, manual_gear_shift: bool = False, gear: int = 1, vehicle_control: carla.VehicleControl = None):
         """
         Applies control to the vehicle.
 
@@ -70,10 +85,18 @@ class Vehicle:
             throttle (float): The throttle value between 0 and 1.
             steer (float): The steer value between -1 and 1.
             brake (float): The brake value between 0 and 1.
+            reverse (bool): Whether to reverse the vehicle. Defaults to False.
+            hand_brake (bool): Whether to apply the hand brake. Defaults to False.
+            manual_gear_shift (bool): Whether to manually shift gears. Defaults to False.
+            gear (int): The gear to shift to. Defaults to 1.
+            vehicle_control (carla.VehicleControl): The vehicle control command to apply. Defaults to None.
         """
-        control = carla.VehicleControl(throttle=throttle, steer=steer, brake=brake, reverse=reverse, hand_brake=hand_brake, manual_gear_shift=manual_gear_shift, gear=gear)
+        if vehicle_control is None:
+            control = carla.VehicleControl(throttle=throttle, steer=steer, brake=brake, reverse=reverse, hand_brake=hand_brake, manual_gear_shift=manual_gear_shift, gear=gear)
+        else:
+            control = vehicle_control
         self.vehicle_actor.apply_control(control)
-
+    
     def get_sensors(self):
         """
         Returns the sensors attached to the vehicle.

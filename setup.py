@@ -15,6 +15,7 @@ setup(
         "opencv-python",
         "requests",
         "alive-progress",
+        "simple-pid",
     ],
     entry_points={
         "console_scripts": [
