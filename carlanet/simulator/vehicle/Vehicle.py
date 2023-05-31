@@ -1,8 +1,8 @@
 import random
 import carla
 import numpy as np
-from .SensorInterface import SensorInterface
-from .SimulatorManager import SimulatorManager
+from ..sensors.SensorInterface import SensorInterface
+from ..SimulatorManager import SimulatorManager
 
 class Vehicle:
     """
@@ -24,6 +24,7 @@ class Vehicle:
         self.blueprint_library = simulator_manager.get_blueprint_library()
         self.vehicle_actor = None
         self.sensors = {}
+        self.max_speed = 60.0
 
         # Spawn vehicle
         vehicle_bp = self.blueprint_library.filter(vehicle_type)[0]
@@ -76,6 +77,15 @@ class Vehicle:
         """
         velocity = self.vehicle_actor.get_velocity()
         return np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+    
+    def get_location(self):
+        """
+        Returns the location of the vehicle.
+
+        Returns:
+            carla.Location: The location of the vehicle.
+        """
+        return self.vehicle_actor.get_transform().location
 
     def apply_control(self, throttle: float = 0.0, steer: float = 0.0, brake: float = 0.0, reverse: bool = False, hand_brake: bool = False, manual_gear_shift: bool = False, gear: int = 1, vehicle_control: carla.VehicleControl = None):
         """

@@ -1,6 +1,7 @@
 import carla
 import random
-from .SensorInterface import SensorInterface
+import matplotlib.pyplot as plt
+from .sensors.SensorInterface import SensorInterface
 
 class SimulatorManager:
     """Class to interact with the CARLA simulator."""
@@ -33,6 +34,10 @@ class SimulatorManager:
         print(f"Connection successful on {host}:{port}. CARLA version: {self.client.get_server_version()}")
 
         self.blueprint_library = self.world.get_blueprint_library()
+
+    def tick(self):
+        """Tick the CARLA simulator."""
+        self.world.tick()
     
     def load_map(self, map_name:str):
         """
@@ -116,7 +121,7 @@ class SimulatorManager:
         """
         spectator = self.world.get_spectator()
         # Move spectator on top of the vehicle
-        spectator.set_transform(carla.Transform(actor.get_location() + carla.Location(z=50), carla.Rotation(pitch=-90)))
+        spectator.set_transform(carla.Transform(actor.get_location() + carla.Location(z=40), carla.Rotation(pitch=-90)))
 
     def destroy(self):
         """Destroys all spawned actors."""
@@ -151,3 +156,21 @@ class SimulatorManager:
             actor (carla.Actor): The actor to add.
         """
         self.actors.append(actor)
+
+    def visualize_control(self, control: carla.VehicleControl):
+        """
+        Visualize the control commands using plot.
+
+        Parameters:
+            control (carla.VehicleControl): The control command for the vehicle.
+        """
+        # Live plot the control commands
+        plt.ion()
+        plt.clf()
+        plt.subplot(2, 1, 1)
+        plt.title('Throttle')
+        plt.plot(control.throttle, 'r.')
+        plt.subplot(2, 1, 2)
+        plt.title('Steering')
+        plt.plot(control.steer, 'b.')
+        plt.pause(0.001)
