@@ -1,6 +1,6 @@
 import carla
 import numpy as np
-from ..SensorInterface import SensorInterface
+from .SensorInterface import SensorInterface
 
 class Camera(SensorInterface):
     """
@@ -23,8 +23,8 @@ class Camera(SensorInterface):
 
         # Set sensor attributes
         self.blueprint = blueprint_library.find('sensor.camera.rgb')
-        self.blueprint.set_attribute('image_size_x', '800')
-        self.blueprint.set_attribute('image_size_y', '600')
+        self.blueprint.set_attribute('image_size_x', '1280')
+        self.blueprint.set_attribute('image_size_y', '720')
         self.blueprint.set_attribute('fov', '110')
         
     def set_blueprint_attribute(self, attribute: str, value: str):

@@ -1,6 +1,6 @@
 import carla
 import numpy as np
-from ..SensorInterface import SensorInterface
+from .SensorInterface import SensorInterface
 
 class DepthCamera(SensorInterface):
     """
