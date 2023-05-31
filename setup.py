@@ -16,6 +16,8 @@ setup(
         "requests",
         "alive-progress",
         "simple-pid",
+        "scipy",
+        "casadi",
     ],
     entry_points={
         "console_scripts": [

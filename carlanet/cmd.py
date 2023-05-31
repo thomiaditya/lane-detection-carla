@@ -13,6 +13,11 @@ class Simulation(object):
         app = Application()
         app.test_run()
 
+    def run(self):
+        from .app import Application
+        app = Application()
+        app.run()
+
 class Server(object):
     """
     All commands to run the CARLA server, scenario runner, etc.
@@ -43,7 +48,7 @@ class Server(object):
 
         command = [server_executable, "-dx11", "-carla-port={}".format(world_port), "-windowed", f"-quality-level={'Low' if low_quality else 'Epic'}", "-benchmark", "-fps=30"]
         subprocess.Popen(command)
-        print(f"CARLA server started on port {world_port} with quality level {'Low' if low_quality else 'Epic'}.")
+        print(f"CARLA server started on port {world_port} with quality level {'Low' if low_quality else 'Epic'}. CARLA version: {CARLA_VERSION}")
 
 class Pipeline(object):
 
