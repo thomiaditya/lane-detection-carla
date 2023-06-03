@@ -4,14 +4,16 @@ import cv2
 import numpy as np
 import functools
 from scipy.spatial import distance
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 from .simulator.SimulatorManager import SimulatorManager
 from .simulator.vehicle.Vehicle import Vehicle
 from .simulator.sensors.Camera import Camera
 from .simulator.sensors.DepthCamera import DepthCamera
 from .simulator.sensors.Lidar import Lidar
 from .simulator.vehicle.VehicleController import VehicleController
-# from .simulator.vehicle.MPC import MPC
 from .simulator.YOLOPv2 import YOLOPv2
+from .simulator.vehicle.MPC import ModelPredictiveController
 
 def handle_exception(func):
     @functools.wraps(func)
@@ -42,53 +44,164 @@ class Application:
     """
     def __init__(self, host='localhost', port=2000):
         self.sm = SimulatorManager(host, port)
-        self.sm.set_sync_mode(True)
+        self.detector = None
+        self.vehicle = None
+        
+        self.sm.set_sync_mode(False)
     
     @handle_exception
-    def run(self):
+    def run_mpc(self):
         """
         Runs the main application flow.
         """
-        vehicle = Vehicle(self.sm, vehicle_type='model3')
+        self.vehicle = Vehicle(self.sm, vehicle_type='model3')
 
-        print("Preparing the YOLOPv2 model...")
-        detector = YOLOPv2(device='cuda')
-        print("YOLOPv2 model ready")
+        # print("Preparing the YOLOPv2 model...")
+        # self.detector = YOLOPv2(device='cuda')
+        # print("YOLOPv2 model ready")
         
-        # Attach a camera sensor to the vehicle
+        # vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback())
+        # print("Camera attached")
+
+        # Move the spectator to the vehicle
+        self.sm.move_spectator(self.vehicle.get_actor())
+        self.vehicle.set_follow_vehicle(True)
+
+        # =========================================================================================
+        # Previous variables
+        # =========================================================================================
+        t_prev = 0
+        v_prev = 0
+        throttle = 0
+        steer = 0
+
+        # =========================================================================================
+        # Implementing MPC
+        # =========================================================================================
+        
+        dt = 0.05
+        N = 15
+        L = self.vehicle.get_actor().bounding_box.extent.x
+
+        # Test the MPC
+        mpc = ModelPredictiveController(dt=dt, N=N, L=L)
+        print(mpc.mpc)
+
+        # Generate waypoints
+        waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 400)
+
+        # Start at the first waypoint
+        current_waypoint = waypoints[:N]
+
+        while True:
+            # time.sleep(0.1)  # Sleep for 0.05 seconds (i.e., 20Hz update rate)
+            t = time.time()
+            v = self.vehicle.get_velocity()
+            STEP_TIME = t - t_prev
+
+            # Update the current waypoint
+            closest_waypoint_index = self.find_closest_waypoint_index(waypoints)
+            current_waypoint = waypoints[closest_waypoint_index:closest_waypoint_index + N]
+
+            # if self.vehicle.get_location().distance(current_waypoint[0].transform.location) > 5.0:
+            #     break
+
+            self.debug_waypoints(current_waypoint)
+
+            converted_waypoints = self.map_to_local(self.vehicle.get_location().x, self.vehicle.get_location().y, self.vehicle.get_yaw(), current_waypoint)
+
+            coeffs = mpc.get_coeffs(converted_waypoints)
+            mpc.update_coeff(coeffs)
+
+            # Set initial states
+            states = self.vehicle.get_state()
+            x0 = np.array([0, 0, states['psi'], states['v'], 0, 0])
+            x0 = mpc.get_initial_state(x0, throttle, steer, STEP_TIME)
+
+            mpc.set_init_guess(x0)
+
+            # Get the control commands
+            u0 = mpc.step(x0)[:, 0]
+
+            # Apply control to the vehicle
+            throttle = u0[0]
+            steer = -np.clip(u0[1], -1, 1)
+
+            self.vehicle.apply_control(throttle, steer)
+
+            print(f"Throttle: {throttle}, Steer: {steer}")
+
+            # Tick the CARLA simulator
+            if self.sm.check_sync_mode(): self.sm.tick()
+            
+            t_prev = t
+            v_prev = v
+        
+        self.cleanup()
+        self.run_mpc()
+
+    def find_closest_waypoint_index(self, waypoints):
+        """
+        Updates the current waypoints.
+
+        Args:
+            waypoints (list): A list of waypoints.
+        """
+        # Find the closest waypoint to the vehicle with minimum distance 3.0
+        closest_waypoint = min(waypoints, key=lambda wp: self.vehicle.get_location().distance(wp.transform.location))
+
+        # Find the index of the closest waypoint
+        closest_waypoint_index = waypoints.index(closest_waypoint)
+
+        # Return the index of the closest waypoint
+        return closest_waypoint_index + 1
+
+    def map_to_local(self, x, y, yaw, waypoints):  
+        # Extract the x and y coordinates of the waypoints
+        wps_x = np.array([wp.transform.location.x for wp in waypoints])
+        wps_y = np.array([wp.transform.location.y for wp in waypoints])
+        # print(yaw)
+        cos_yaw = np.cos(-yaw)
+        sin_yaw = np.sin(-yaw)
+                
+        wp_vehRef_x = cos_yaw * (wps_x - x) - sin_yaw * (wps_y - y)
+        wp_vehRef_y = sin_yaw * (wps_x - x) + cos_yaw * (wps_y - y)
+
+        wp_ = np.array([wp_vehRef_x, wp_vehRef_y])
+
+        return wp_
+
+    def debug_waypoints(self, waypoints):
+        """
+        Debugs the waypoints by drawing lines between each pair of waypoints and drawing a string with the waypoint number at each waypoint location.
+
+        Args:
+            waypoints (list): A list of waypoints.
+        """
+        debug = self.sm.get_world().debug
+
+        for i in range(len(waypoints) - 1):
+            # Draw a line between each pair of waypoints
+            debug.draw_line(waypoints[i].transform.location, waypoints[i + 1].transform.location, 
+                            thickness=0.2, color=carla.Color(255, 0, 0), persistent_lines=False, life_time=0.5)
+
+    def camera_callback(self):
+        # Create function to handle the camera data
         def callback(image):
             # Create window to display the camera image
-            # cv2.namedWindow("Camera", cv2.WINDOW_AUTOSIZE)
+            cv2.namedWindow("Camera", cv2.WINDOW_AUTOSIZE)
 
             # Change image into a numpy array
             image = Camera.process_data(image)
 
             # Lane detector
-            preds = detector.predict(image)
-            detected_lane = detector.show_detection(preds)
+            preds = self.detector.predict(image)
+            detected_lane = self.detector.show_detection(preds)
             # Display the detected lane combined with the region of interest
             cv2.imshow("Camera", detected_lane)
             cv2.waitKey(1)
 
-        vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=callback)
-        print("Camera attached")
-
-        # Move the spectator to the vehicle
-        self.sm.move_spectator(vehicle.get_actor())
-
-        # Run the simulation for 10 seconds
-        while True:
-            time.sleep(0.5)
-
-            # Apply control to the vehicle (e.g., throttle, steering, etc.)
-            control = carla.VehicleControl()
-            control.throttle = 0.5
-            control.steer = 0.0
-            vehicle.apply_control(vehicle_control=control)
-            print(control)
-
-            # Tick the CARLA simulator
-            self.sm.tick()
+        return callback
 
     @handle_exception
     def test_run(self):
@@ -179,6 +292,9 @@ class Application:
         Cleans up the simulation.
         """
         self.sm.destroy()
+
+        # Clear all debug lines
+        self.sm.get_world().debug.draw_line(carla.Location(), carla.Location(), thickness=0.0, color=carla.Color(0, 0, 0), life_time=0.0, persistent_lines=False)
 
         # Destroy the window
         # cv2.destroyAllWindows()

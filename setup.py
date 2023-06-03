@@ -18,6 +18,7 @@ setup(
         "simple-pid",
         "scipy",
         "casadi",
+        # TODO: Add more dependencies that being used in the project.
     ],
     entry_points={
         "console_scripts": [

@@ -26,6 +26,7 @@ class Camera(SensorInterface):
         self.blueprint.set_attribute('image_size_x', '1280')
         self.blueprint.set_attribute('image_size_y', '720')
         self.blueprint.set_attribute('fov', '110')
+        self.blueprint.set_attribute('sensor_tick', '0.033')
         
     def set_blueprint_attribute(self, attribute: str, value: str):
         """

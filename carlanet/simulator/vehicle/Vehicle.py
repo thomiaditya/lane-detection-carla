@@ -25,6 +25,7 @@ class Vehicle:
         self.vehicle_actor = None
         self.sensors = {}
         self.max_speed = 60.0
+        self.follow_vehicle = False
 
         # Spawn vehicle
         vehicle_bp = self.blueprint_library.filter(vehicle_type)[0]
@@ -40,6 +41,20 @@ class Vehicle:
 
         # Add the actor to the list of actors in the simulator manager
         self.simulator_manager.add_actor(self.vehicle_actor)
+
+    def get_state(self):
+        """
+        Returns the state of the vehicle.
+
+        Returns:
+            dict: The state of the vehicle.
+        """
+        state = {}
+        state['x'] = self.vehicle_actor.get_transform().location.x
+        state['y'] = self.vehicle_actor.get_transform().location.y
+        state['psi'] = self.get_yaw()
+        state['v'] = self.get_velocity()
+        return state
 
     def attach_sensor(self, sensor: SensorInterface, transform: carla.Transform = None, callback: callable = None):
         """
@@ -78,6 +93,15 @@ class Vehicle:
         velocity = self.vehicle_actor.get_velocity()
         return np.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
     
+    def get_yaw(self):
+        """
+        Returns the yaw angle of the vehicle.
+
+        Returns:
+            float: The yaw angle of the vehicle.
+        """
+        return np.radians(self.vehicle_actor.get_transform().rotation.yaw)
+    
     def get_location(self):
         """
         Returns the location of the vehicle.
@@ -86,6 +110,15 @@ class Vehicle:
             carla.Location: The location of the vehicle.
         """
         return self.vehicle_actor.get_transform().location
+    
+    def set_follow_vehicle(self, follow_vehicle: bool):
+        """
+        Sets whether the spectator should follow the vehicle.
+
+        Parameters:
+            follow_vehicle (bool): Whether to follow the vehicle.
+        """
+        self.follow_vehicle = follow_vehicle
 
     def apply_control(self, throttle: float = 0.0, steer: float = 0.0, brake: float = 0.0, reverse: bool = False, hand_brake: bool = False, manual_gear_shift: bool = False, gear: int = 1, vehicle_control: carla.VehicleControl = None):
         """
@@ -106,6 +139,9 @@ class Vehicle:
         else:
             control = vehicle_control
         self.vehicle_actor.apply_control(control)
+
+        if self.follow_vehicle:
+            self.simulator_manager.move_spectator(self.vehicle_actor)
     
     def get_sensors(self):
         """

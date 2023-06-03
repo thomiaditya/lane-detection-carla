@@ -1,6 +1,7 @@
 import carla
 import random
 import matplotlib.pyplot as plt
+import numpy as np
 from .sensors.SensorInterface import SensorInterface
 
 class SimulatorManager:
@@ -57,7 +58,7 @@ class SimulatorManager:
         """
         settings = self.world.get_settings()
         settings.synchronous_mode = sync_mode
-        settings.fixed_delta_seconds = 0.05
+        settings.fixed_delta_seconds = 0.05 if sync_mode else None
         self.world.apply_settings(settings)
         self.sync_mode = sync_mode
 
@@ -120,8 +121,27 @@ class SimulatorManager:
             actor (carla.Actor): The actor to move the spectator to.
         """
         spectator = self.world.get_spectator()
-        # Move spectator on top of the vehicle
-        spectator.set_transform(carla.Transform(actor.get_location() + carla.Location(z=40), carla.Rotation(pitch=-90)))
+        # Move spectator behind the vehicle
+        # spectator.set_transform(carla.Transform(actor.get_location() + carla.Location(z=50), carla.Rotation(pitch=-90)))
+        # get the actor's location and rotation
+        actor_location = actor.get_location()
+        actor_rotation = actor.get_transform().rotation
+
+        # set a distance for the spectator to stand behind the actor
+        distance_behind = 15
+
+        # calculate the new location of the spectator
+        spectator_location = carla.Location(
+            x=actor_location.x - distance_behind * np.cos(np.radians(actor_rotation.yaw)),
+            y=actor_location.y - distance_behind * np.sin(np.radians(actor_rotation.yaw)),
+            z=actor_location.z + 10  # plus some height so the camera can look downwards
+        )
+
+        # set the new rotation of the spectator
+        spectator_rotation = carla.Rotation(pitch=-20, yaw=actor_rotation.yaw, roll=0)  # Look slightly downwards
+
+        # set the spectator's new transform
+        spectator.set_transform(carla.Transform(spectator_location, spectator_rotation))
 
     def destroy(self):
         """Destroys all spawned actors."""

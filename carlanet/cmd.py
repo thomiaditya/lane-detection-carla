@@ -13,10 +13,11 @@ class Simulation(object):
         app = Application()
         app.test_run()
 
-    def run(self):
+    def run(self, mpc=False):
         from .app import Application
         app = Application()
-        app.run()
+        if mpc:
+            app.run_mpc()
 
 class Server(object):
     """
@@ -65,6 +66,13 @@ class Pipeline(object):
         """
         from .utils.download_install_carla import execute
         execute(CARLA_VERSION)
+
+    def downloadyolopv2(self):
+        """
+        Downloads the YOLOv2 weights.
+        """
+        # TODO: Then implement this function using the code you have implemented in yolopv2.py.
+        pass
 
     def connection_test(self, host="localhost", port=2000, timeout=5):
         """

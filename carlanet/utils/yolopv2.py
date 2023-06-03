@@ -523,3 +523,6 @@ def lane_line_mask(ll = None):
     ll_seg_mask = torch.round(ll_seg_mask).squeeze(1)
     ll_seg_mask = ll_seg_mask.int().squeeze().cpu().numpy()
     return ll_seg_mask
+
+# Code below is extended for downloading YOLOPv2 weights from given url.
+# TODO: Download YOLOPv2 weights from given url and save it to carlanet\model\yolopv2.pt.
