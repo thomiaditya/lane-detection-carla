@@ -47,7 +47,7 @@ class Application:
         self.detector = None
         self.vehicle = None
         
-        self.sm.set_sync_mode(False)
+        self.sm.set_sync_mode(True)
     
     @handle_exception
     def run_mpc(self):
@@ -72,8 +72,8 @@ class Application:
         # =========================================================================================
         t_prev = 0
         v_prev = 0
-        throttle = 0
-        steer = 0
+        a = 0
+        delta = 0
 
         # =========================================================================================
         # Implementing MPC
@@ -81,64 +81,142 @@ class Application:
         
         dt = 0.05
         N = 15
-        L = self.vehicle.get_actor().bounding_box.extent.x
+        L = self.vehicle.get_actor().bounding_box.extent.x * 2
 
         # Test the MPC
         mpc = ModelPredictiveController(dt=dt, N=N, L=L)
         print(mpc.mpc)
 
         # Generate waypoints
-        waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 400)
+        waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 500)
 
         # Start at the first waypoint
         current_waypoint = waypoints[:N]
+
+        # # Live plot
+        # plt.ion()
+        # fig, axs = plt.subplots()
+        # x = np.linspace(0, 20)
+        # y = np.linspace(-15, 15)
+        # wp, = axs.plot(x, y, 'b-')
+        # wp_ref, = axs.plot(x, y, 'r-')
 
         while True:
             # time.sleep(0.1)  # Sleep for 0.05 seconds (i.e., 20Hz update rate)
             t = time.time()
             v = self.vehicle.get_velocity()
+            x = self.vehicle.get_location().x
+            y = self.vehicle.get_location().y
+            yaw = self.vehicle.get_yaw()
             STEP_TIME = t - t_prev
 
             # Update the current waypoint
             closest_waypoint_index = self.find_closest_waypoint_index(waypoints)
             current_waypoint = waypoints[closest_waypoint_index:closest_waypoint_index + N]
 
-            # if self.vehicle.get_location().distance(current_waypoint[0].transform.location) > 5.0:
-            #     break
+            self.debug_waypoints(current_waypoint) # Debug the waypoints
 
-            self.debug_waypoints(current_waypoint)
+            converted_waypoints = self.map_to_local(x, y, yaw, current_waypoint) # Convert the waypoints to the vehicle reference frame
 
-            converted_waypoints = self.map_to_local(self.vehicle.get_location().x, self.vehicle.get_location().y, self.vehicle.get_yaw(), current_waypoint)
+            coeffs = mpc.get_coeffs(converted_waypoints) # Get the coefficients of the polynomial
+            mpc.update_coeff(coeffs) # Update the coefficients of the polynomial
 
-            coeffs = mpc.get_coeffs(converted_waypoints)
-            mpc.update_coeff(coeffs)
+            # Get desired speed using curvature formula
+            k = self.curvature(coeffs, 10)
+            v_des = self.calculate_speed(k, 15, 10)
+            mpc.set_desired_speed(v_des)
+            print(f"Desired speed: {v_des * 3.6} km/h / Current speed: {v * 3.6} km/h")
 
             # Set initial states
-            states = self.vehicle.get_state()
-            x0 = np.array([0, 0, states['psi'], states['v'], 0, 0])
-            x0 = mpc.get_initial_state(x0, throttle, steer, STEP_TIME)
+            x0 = np.array([0, 0, 0, v, 0, 0])
+            x0 = mpc.get_initial_state(x0, a, delta, STEP_TIME, coeffs)
 
-            mpc.set_init_guess(x0)
+            mpc.set_init_guess(x0, u0 = np.array([a, delta]))
 
             # Get the control commands
             u0 = mpc.step(x0)[:, 0]
 
             # Apply control to the vehicle
-            throttle = u0[0]
-            steer = -np.clip(u0[1], -1, 1)
+            a = u0[0]
+            delta = u0[1]
 
-            self.vehicle.apply_control(throttle, steer)
+            control = self.set_control(a, delta)
+            self.vehicle.apply_control(vehicle_control=control)
 
-            print(f"Throttle: {throttle}, Steer: {steer}")
+            # print(control) # Print the control commands
+
+            # # Plot the waypoints with x coordinates as the x axis and y coordinates as the y axis
+            # wp.set_xdata(converted_waypoints[0])
+            # wp.set_ydata(converted_waypoints[1])
+
+            # wp_ref.set_xdata(converted_waypoints[0])
+            # wp_ref.set_ydata(np.polyval(coeffs, converted_waypoints[0]))
+
+            # # axs.relim()
+            # axs.autoscale_view(scalex=True, scaley=False)
+
+            # plt.draw()
+            # plt.pause(0.001)
 
             # Tick the CARLA simulator
             if self.sm.check_sync_mode(): self.sm.tick()
             
             t_prev = t
             v_prev = v
-        
+
         self.cleanup()
-        self.run_mpc()
+
+    def calculate_speed(self, curvature, max_speed, beta):
+        """
+        Calculate the desired speed based on curvature.
+        
+        :param curvature: The curvature at a specific point along the path.
+        :param max_speed: The maximum speed of the vehicle.
+        :param beta: A tunable parameter that determines how much the speed decreases with increasing curvature.
+        
+        :return: The desired speed at the given curvature.
+        """
+        speed = max_speed / (1 + beta * abs(curvature))
+        return speed
+
+    def curvature(self, poly_coeffs, x):
+        """
+        Compute the curvature of a polynomial at a specific x.
+        
+        :param poly_coeffs: The coefficients of the polynomial, in decreasing order.
+        :param x: The x-value at which to compute the curvature.
+        
+        :return: The curvature at x.
+        """
+        # Calculate the first derivative
+        first_derivative_coeffs = np.polyder(poly_coeffs)
+        first_derivative = np.polyval(first_derivative_coeffs, x)
+
+        # Calculate the second derivative
+        second_derivative_coeffs = np.polyder(first_derivative_coeffs)
+        second_derivative = np.polyval(second_derivative_coeffs, x)
+
+        # Calculate the curvature
+        curvature = second_derivative / (1 + first_derivative**2)**1.5
+
+        return curvature
+
+    def set_control(self, a, delta):
+        """
+        Set the control of the vehicle.
+
+        Args:
+            a (float): Throttle.
+            delta (float): Steering angle.
+        """
+        control = carla.VehicleControl()
+
+        threshold = 0
+        control.throttle = a if a > 0 else 0
+        control.brake = a if a < 0 else 0
+        control.steer = -delta
+
+        return control
 
     def find_closest_waypoint_index(self, waypoints):
         """
@@ -154,7 +232,7 @@ class Application:
         closest_waypoint_index = waypoints.index(closest_waypoint)
 
         # Return the index of the closest waypoint
-        return closest_waypoint_index + 1
+        return closest_waypoint_index + 2
 
     def map_to_local(self, x, y, yaw, waypoints):  
         # Extract the x and y coordinates of the waypoints
@@ -183,7 +261,7 @@ class Application:
         for i in range(len(waypoints) - 1):
             # Draw a line between each pair of waypoints
             debug.draw_line(waypoints[i].transform.location, waypoints[i + 1].transform.location, 
-                            thickness=0.2, color=carla.Color(255, 0, 0), persistent_lines=False, life_time=0.5)
+                            thickness=0.2, color=carla.Color(255, 0, 0), persistent_lines=False, life_time=0.1)
 
     def camera_callback(self):
         # Create function to handle the camera data
@@ -295,6 +373,6 @@ class Application:
 
         # Clear all debug lines
         self.sm.get_world().debug.draw_line(carla.Location(), carla.Location(), thickness=0.0, color=carla.Color(0, 0, 0), life_time=0.0, persistent_lines=False)
-
+        plt.ioff()
         # Destroy the window
         # cv2.destroyAllWindows()

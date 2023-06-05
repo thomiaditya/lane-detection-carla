@@ -9,37 +9,18 @@ mpl.rcParams['lines.linewidth'] = 3
 mpl.rcParams['axes.grid'] = True
 
 # TODO: Tune this weights
-CTE_W = 5000 # Cross Track Error Weight
-EPSI_W = 5000 # Heading Error Weight
-V_W = 10 # Velocity Weight
+# TODO: Make this variables a file to be read for readability
+CTE_W = 500 # Cross Track Error Weight
+EPSI_W = 300 # Heading Error Weight
+V_W = 100 # Velocity Weight
 
-A_W = 5 # Acceleration Weight
-DELTA_W = 270 # Steering Angle Weight
+A_W = 20 # Acceleration Weight
+DELTA_W = 20 # Steering Angle Weight
 
 A_RATE_W = 100 # Acceleration Rate Weight
-DELTA_RATE_W = 500 # Steering Angle Rate Weight
+DELTA_RATE_W = 60 # Steering Angle Rate Weight
 
-DESIRED_SPEED = 10 # Desired speed
-
-def polyval(coeffs, x, shape=(1,1)):
-    """
-    # Polynomial evaluation
-    This function evaluates a polynomial at a given point.
-
-    Args:
-        coeffs (list): List of polynomial coefficients.
-        x (float): Point at which the polynomial is to be evaluated.
-
-    Returns:
-        float: Value of the polynomial at x.
-    """
-    assert type(coeffs) == ca.SX and type(x) == ca.SX, "Coefficients and x must be of type SX"
-
-    y = ca.SX(0)
-    for i in range(coeffs.shape[0]):
-        y += coeffs[i] * x**i
-    
-    return y
+DESIRED_SPEED = 20 # Desired speed
 
 class ModelPredictiveController:
     """
@@ -123,18 +104,19 @@ class ModelPredictiveController:
 
         # Time-varying parameters
         coeff = self.model.set_variable(var_type='_tvp', var_name='coeff', shape=(self.p_deg + 1, 1))
+        v_des = self.model.set_variable(var_type='_p', var_name='v_des', shape=(1,1))
 
         # Model equations
-        p_eval = ca.polyval(coeff, x)
-        # th_des = np.arctan(coff[2] + 2*coff[1]*init_state.x + 3*coff[0]*init_state.x**2)
-        psides = ca.arctan(p_eval)
+        curve = ca.polyval(coeff, x)
+        # Use derivative of polynomial to get heading angle
+        psides = ca.arctan(sum([coeff[-(i + 1)] * i*x**(i - 1) for i in range(1, self.p_deg + 1)]))
 
         x_next = x + v * ca.cos(psi) * self.dt
         y_next = y + v * ca.sin(psi) * self.dt
-        psi_next = psi - (v / self.L) * delta * self.dt
+        psi_next = psi + v * delta / self.L * self.dt
         v_next = v + a * self.dt
-        cte_next = p_eval - y + v * ca.sin(epsi) * self.dt
-        epsi_next = psi - psides - (v / self.L) * delta * self.dt
+        cte_next = curve - y + v * ca.sin(epsi) * self.dt
+        epsi_next = psi - psides + (v / self.L) * delta * self.dt
 
         self.model.set_rhs('x', x_next)
         self.model.set_rhs('y', y_next)
@@ -189,8 +171,11 @@ class ModelPredictiveController:
         a = self.model.u['a']
         delta = self.model.u['delta']
 
+        # Desired speed
+        v_des = self.model.p['v_des']
+
         # Set the objective function
-        lterm = CTE_W * cte**2 + EPSI_W * epsi**2 + V_W * (v - self.v_des)**2 \
+        lterm = CTE_W * cte**2 + EPSI_W * epsi**2 + V_W * (v - v_des)**2 \
                 + A_W * a**2 + DELTA_W * delta**2
         
         mterm = ca.SX(0)
@@ -203,30 +188,42 @@ class ModelPredictiveController:
         )
 
         # Set constraints
-        self.mpc.bounds['lower', '_u', 'a'] = 0
+        self.mpc.bounds['lower', '_u', 'a'] = -1
         self.mpc.bounds['upper', '_u', 'a'] = 1
 
-        self.mpc.bounds['lower', '_u', 'delta'] = -2
-        self.mpc.bounds['upper', '_u', 'delta'] = 2
+        self.mpc.bounds['lower', '_u', 'delta'] = -1
+        self.mpc.bounds['upper', '_u', 'delta'] = 1
 
         tvp_temp = self.mpc.get_tvp_template()
+        p_temp = self.mpc.get_p_template(1)
 
         def tvp_fun(t_now):
             for i in range(self.N + 1):
                 tvp_temp['_tvp', i] = self.coeff
-            
-            # print(tvp_temp['_tvp', :])
-                
             return tvp_temp
         
+        def p_fun(t_now):
+            p_temp['_p', 0] = self.v_des
+            return p_temp
+        
         self.mpc.set_tvp_fun(tvp_fun)
+        self.mpc.set_p_fun(p_fun)
 
-        self.mpc.scaling['_u', 'a'] = 0.5
-        self.mpc.scaling['_u', 'delta'] = 3
+        # self.mpc.scaling['_u', 'a'] = 0.5
+        # self.mpc.scaling['_u', 'delta'] = 3
 
         self.mpc.setup()
 
-    def get_initial_state(self, x0, throttle, steer, step_time):
+    def set_desired_speed(self, v_des):
+        """
+        Set the desired speed.
+
+        Args:
+            v_des (float): Desired speed.
+        """
+        self.v_des = v_des
+
+    def get_initial_state(self, x0, throttle, steer, step_time, coeff):
         """
         // Latency
         const double delay_t = 0.1;
@@ -238,14 +235,19 @@ class ModelPredictiveController:
         double delay_cte = cte + v * sin(epsi) * delay_t;
         double delay_epsi = epsi + v * -steer_value /Lf * delay_t;
         """
-        latency = 0.033
+        latency = self.dt
+
+        # Predict the movement long enough to cover the manuever
+        look_ahead = 3 # Look ahead distance
+        cte = np.polyval(coeff, look_ahead) - x0[1] # 
+        yaw_err = np.arctan(sum([coeff[-(i + 1)] * i*look_ahead**(i - 1) for i in range(1, self.p_deg + 1)])) # Using x = look_ahead to get heading angle, because we want to get the heading angle at the next time step. And also the current heading angle is 0.
 
         delay_x = x0[3] * latency
-        delay_y = 0
-        delay_psi = x0[3] * -steer / self.L * latency
+        delay_y = np.polyval(coeff, 0)
+        delay_psi = x0[3] * -steer * latency / self.L
         delay_v = x0[3] + throttle * latency
-        delay_cte = x0[4] + x0[3] * ca.sin(x0[5]) * latency
-        delay_epsi = x0[5] + x0[3] * -steer / self.L * latency
+        delay_cte = cte + x0[3] * np.sin(yaw_err) * latency
+        delay_epsi = yaw_err + x0[3] * -steer / self.L * latency
 
         return np.array([delay_x, delay_y, delay_psi, delay_v, delay_cte, delay_epsi])
 
@@ -258,7 +260,7 @@ class ModelPredictiveController:
         """
         self.coeff = coeff
 
-    def set_init_guess(self, x0):
+    def set_init_guess(self, x0, u0 = None):
         """
         Set the initial guess for the MPC.
 
@@ -268,6 +270,9 @@ class ModelPredictiveController:
         """
         self.mpc.x0 = x0
         # self.simulator.x0 = x0
+
+        if u0 is not None:
+            self.mpc.u0 = u0
 
         self.mpc.set_initial_guess()
 

@@ -31,7 +31,8 @@ class Vehicle:
         vehicle_bp = self.blueprint_library.filter(vehicle_type)[0]
         if spawn_point is None:
             spawn_points = self.world.get_map().get_spawn_points()
-            spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
+            spawn_point = spawn_points[2] if spawn_points else carla.Transform()
+            # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
 
         self.vehicle_actor = self.world.spawn_actor(vehicle_bp, spawn_point)
         print(f"Vehicle spawned at {spawn_point}.")
@@ -100,7 +101,9 @@ class Vehicle:
         Returns:
             float: The yaw angle of the vehicle.
         """
-        return np.radians(self.vehicle_actor.get_transform().rotation.yaw)
+        yaw_deg = self.vehicle_actor.get_transform().rotation.yaw
+
+        return np.radians(yaw_deg)
     
     def get_location(self):
         """
