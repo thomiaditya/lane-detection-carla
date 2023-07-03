@@ -31,7 +31,7 @@ class Vehicle:
         vehicle_bp = self.blueprint_library.filter(vehicle_type)[0]
         if spawn_point is None:
             spawn_points = self.world.get_map().get_spawn_points()
-            spawn_point = spawn_points[2] if spawn_points else carla.Transform()
+            spawn_point = spawn_points[0] if spawn_points else carla.Transform()
             # spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
 
         self.vehicle_actor = self.world.spawn_actor(vehicle_bp, spawn_point)

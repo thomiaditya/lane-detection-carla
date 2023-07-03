@@ -18,11 +18,14 @@ setup(
         "simple-pid",
         "scipy",
         "casadi",
+        "do-mpc",
+        "onnx",
+        "asyncua",
         # TODO: Add more dependencies that being used in the project.
     ],
     entry_points={
         "console_scripts": [
-            "carlanet=carlanet.app:main"
+            "carlanet=carlanet.cmd:main"
         ]
     },
     classifiers=[

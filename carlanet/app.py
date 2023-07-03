@@ -3,6 +3,8 @@ import time
 import cv2
 import numpy as np
 import functools
+import os
+import os.path as osp
 from scipy.spatial import distance
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -13,7 +15,10 @@ from .simulator.sensors.DepthCamera import DepthCamera
 from .simulator.sensors.Lidar import Lidar
 from .simulator.vehicle.VehicleController import VehicleController
 from .simulator.YOLOPv2 import YOLOPv2
+from .simulator.CLRNet import CLRNet
 from .simulator.vehicle.MPC import ModelPredictiveController
+
+from queue import Queue
 
 def handle_exception(func):
     @functools.wraps(func)
@@ -46,125 +51,401 @@ class Application:
         self.sm = SimulatorManager(host, port)
         self.detector = None
         self.vehicle = None
+        self.world = self.sm.get_world()
+
+        self.frame_times = []
         
         self.sm.set_sync_mode(True)
+
+    def set_simulator_weather(self, weather_carla):
+        """
+        Sets the weather of the CARLA simulator.
+
+        Args:
+            weather (carla.WeatherParameters): The weather to set.
+        """
+        weather = self.world.get_weather()
+        weather.sun_altitude_angle = -30
+        weather.fog_density = 65
+        weather.fog_distance = 10
+        self.world.set_weather(weather_carla)
     
     @handle_exception
-    def run_mpc(self):
+    def run_yolo(self):
         """
         Runs the main application flow.
         """
-        self.vehicle = Vehicle(self.sm, vehicle_type='model3')
+        print("Preparing the YOLOPv2 model...")
+        self.detector = YOLOPv2(device='cuda')
+        print("YOLOPv2 model ready")
 
-        # print("Preparing the YOLOPv2 model...")
-        # self.detector = YOLOPv2(device='cuda')
-        # print("YOLOPv2 model ready")
-        
-        # vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback())
-        # print("Camera attached")
+        # List the weathers
+        weathers = [
+            # Clear
+            [carla.WeatherParameters.ClearSunset, "ClearSunset"],
+            [carla.WeatherParameters.ClearNight, "ClearNight"],
+            # Rain
+            [carla.WeatherParameters.HardRainSunset, "HardRainSunset"],
+            [carla.WeatherParameters.HardRainNight, "HardRainNight"],
+            # Cloudy
+            [carla.WeatherParameters.CloudySunset, "CloudySunset"],
+            [carla.WeatherParameters.CloudyNight, "CloudyNight"],
+            # Wet
+            [carla.WeatherParameters.WetSunset, "WetSunset"],
+            [carla.WeatherParameters.WetNight, "WetNight"],
+        ]
 
-        # Move the spectator to the vehicle
-        self.sm.move_spectator(self.vehicle.get_actor())
-        self.vehicle.set_follow_vehicle(True)
+        # Loop through the weathers
+        for weather in weathers:
+            # Set the weather
+            self.set_simulator_weather(weather[0])
+            print(f"Running the simulation with weather {weather[1]}...")
+            self.vehicle = Vehicle(self.sm, vehicle_type='model3')
 
-        # =========================================================================================
-        # Previous variables
-        # =========================================================================================
-        t_prev = 0
-        v_prev = 0
-        a = 0
-        delta = 0
-
-        # =========================================================================================
-        # Implementing MPC
-        # =========================================================================================
-        
-        dt = 0.05
-        N = 15
-        L = self.vehicle.get_actor().bounding_box.extent.x * 2
-
-        # Test the MPC
-        mpc = ModelPredictiveController(dt=dt, N=N, L=L)
-        print(mpc.mpc)
-
-        # Generate waypoints
-        waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 500)
-
-        # Start at the first waypoint
-        current_waypoint = waypoints[:N]
-
-        # # Live plot
-        # plt.ion()
-        # fig, axs = plt.subplots()
-        # x = np.linspace(0, 20)
-        # y = np.linspace(-15, 15)
-        # wp, = axs.plot(x, y, 'b-')
-        # wp_ref, = axs.plot(x, y, 'r-')
-
-        while True:
-            # time.sleep(0.1)  # Sleep for 0.05 seconds (i.e., 20Hz update rate)
-            t = time.time()
-            v = self.vehicle.get_velocity()
-            x = self.vehicle.get_location().x
-            y = self.vehicle.get_location().y
-            yaw = self.vehicle.get_yaw()
-            STEP_TIME = t - t_prev
-
-            # Update the current waypoint
-            closest_waypoint_index = self.find_closest_waypoint_index(waypoints)
-            current_waypoint = waypoints[closest_waypoint_index:closest_waypoint_index + N]
-
-            self.debug_waypoints(current_waypoint) # Debug the waypoints
-
-            converted_waypoints = self.map_to_local(x, y, yaw, current_waypoint) # Convert the waypoints to the vehicle reference frame
-
-            coeffs = mpc.get_coeffs(converted_waypoints) # Get the coefficients of the polynomial
-            mpc.update_coeff(coeffs) # Update the coefficients of the polynomial
-
-            # Get desired speed using curvature formula
-            k = self.curvature(coeffs, 10)
-            v_des = self.calculate_speed(k, 15, 10)
-            mpc.set_desired_speed(v_des)
-            print(f"Desired speed: {v_des * 3.6} km/h / Current speed: {v * 3.6} km/h")
-
-            # Set initial states
-            x0 = np.array([0, 0, 0, v, 0, 0])
-            x0 = mpc.get_initial_state(x0, a, delta, STEP_TIME, coeffs)
-
-            mpc.set_init_guess(x0, u0 = np.array([a, delta]))
-
-            # Get the control commands
-            u0 = mpc.step(x0)[:, 0]
-
-            # Apply control to the vehicle
-            a = u0[0]
-            delta = u0[1]
-
-            control = self.set_control(a, delta)
-            self.vehicle.apply_control(vehicle_control=control)
-
-            # print(control) # Print the control commands
-
-            # # Plot the waypoints with x coordinates as the x axis and y coordinates as the y axis
-            # wp.set_xdata(converted_waypoints[0])
-            # wp.set_ydata(converted_waypoints[1])
-
-            # wp_ref.set_xdata(converted_waypoints[0])
-            # wp_ref.set_ydata(np.polyval(coeffs, converted_waypoints[0]))
-
-            # # axs.relim()
-            # axs.autoscale_view(scalex=True, scaley=False)
-
-            # plt.draw()
-            # plt.pause(0.001)
-
-            # Tick the CARLA simulator
-            if self.sm.check_sync_mode(): self.sm.tick()
+            sensor_queue = Queue()
             
-            t_prev = t
-            v_prev = v
+            self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
+            print("Camera attached")
 
-        self.cleanup()
+            # Move the spectator to the vehicle
+            self.sm.move_spectator(self.vehicle.get_actor())
+            self.vehicle.set_follow_vehicle(True)
+
+            # =========================================================================================
+            # Previous variables
+            # =========================================================================================
+            t_prev = 0
+            v_prev = 0
+            a = 0
+            delta = 0
+
+            # =========================================================================================
+            # Implementing MPC
+            # =========================================================================================
+            
+            dt = 0.05
+            N = 20
+            L = self.vehicle.get_actor().bounding_box.extent.x * 2
+
+            # Test the MPC
+            mpc = ModelPredictiveController(dt=dt, N=N, L=L)
+            print(mpc.mpc)
+
+            # Generate waypoints
+            waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 500)
+
+            # Start at the first waypoint
+            current_waypoint = waypoints[:N]
+
+            # # Live plot
+            # plt.ion()
+            # fig, axs = plt.subplots()
+            # x = np.linspace(0, 20)
+            # y = np.linspace(-15, 15)
+            # wp, = axs.plot(x, y, 'b-')
+            # wp_ref, = axs.plot(x, y, 'r-')
+            
+            # Run loop only 200 frames
+            frames = 500
+            for i in range(frames):
+                # time.sleep(0.1)  # Sleep for 0.05 seconds (i.e., 20Hz update rate)
+                # Tick the CARLA simulator
+                if self.sm.check_sync_mode(): self.sm.tick()
+
+                t = time.time()
+                start_time = t
+                v = self.vehicle.get_velocity()
+                x = self.vehicle.get_location().x
+                y = self.vehicle.get_location().y
+                yaw = self.vehicle.get_yaw()
+                STEP_TIME = t - t_prev
+
+                # Update the current waypoint
+                closest_waypoint_index = self.find_closest_waypoint_index(waypoints)
+                current_waypoint = waypoints[closest_waypoint_index:closest_waypoint_index + N]
+
+                # self.debug_waypoints(current_waypoint) # Debug the waypoints
+
+                converted_waypoints = self.map_to_local(x, y, yaw, current_waypoint) # Convert the waypoints to the vehicle reference frame
+
+                coeffs = mpc.get_coeffs(converted_waypoints) # Get the coefficients of the polynomial
+                mpc.update_coeff(coeffs) # Update the coefficients of the polynomial
+
+                # Get desired speed using curvature formula
+                k = self.curvature(coeffs, 20) # Get the curvature at x
+                v_des = self.calculate_speed(k, 30, 10) # Calculate the desired speed
+                mpc.set_desired_speed(v_des) # Set the desired speed
+
+                # Debug the desired speed using string
+                self.sm.get_world().debug.draw_string(self.vehicle.get_location() + carla.Location(x=0, y=0, z=1), 
+                                                    f'Speed: {v:.2f}/{v_des:.2f}',
+                                    draw_shadow=False, color=carla.Color(0, 255, 255), life_time=dt, persistent_lines=False)
+
+                # Set initial states
+                x0 = np.array([0, 0, 0, v, 0, 0])
+                x0 = mpc.get_initial_state(x0, a, delta, STEP_TIME, coeffs)
+
+                mpc.set_init_guess(x0, u0 = np.array([a, delta]))
+
+                # Get the control commands
+                u0 = mpc.step(x0)[:, 0]
+
+                # Apply control to the vehicle
+                a = u0[0]
+                delta = u0[1]
+
+                control = self.set_control(a, delta)
+                self.vehicle.apply_control(vehicle_control=control)
+
+                # print(control) # Print the control commands
+
+                # # Plot the waypoints with x coordinates as the x axis and y coordinates as the y axis
+                # wp.set_xdata(converted_waypoints[0])
+                # wp.set_ydata(converted_waypoints[1])
+
+                # wp_ref.set_xdata(converted_waypoints[0])
+                # wp_ref.set_ydata(np.polyval(coeffs, converted_waypoints[0]))
+
+                # # axs.relim()
+                # axs.autoscale_view(scalex=True, scaley=False)
+
+                # plt.draw()
+                # plt.pause(0.001)
+
+                # =========================================================================================
+                # Lane detector
+                # =========================================================================================
+                # Wait for the camera to process an image
+                image = sensor_queue.get()
+
+                preds = self.detector.predict(image)
+                detected_lane = self.detector.show_detection(preds)
+
+                end_time = time.time()
+
+                self.frame_times.append(end_time - start_time)
+
+                if len(self.frame_times) > 100:
+                    self.frame_times.pop(0)
+
+                if len(self.frame_times) > 0:
+                    avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                    fps = 1.0 / avg_frame_time
+                    # Delete line
+                    print('FPS: ', fps, end='\r')
+
+                # =========================================================================================
+                # End of lane detector
+                # =========================================================================================
+                
+                t_prev = t
+                v_prev = v
+
+            # =========================================================================================
+            # Calculate the FPS
+            # =========================================================================================
+            fps_file = f"fps-yolo.txt"
+            if len(self.frame_times) > 0:
+                avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                fps = 1.0 / avg_frame_time
+                # Write the FPS to a file for every weather
+                with open(fps_file, 'a') as f:
+                    f.write(f"{weather[1]}: {fps:.4f}\n")
+                
+                print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+
+            self.cleanup()
+    
+    @handle_exception
+    def run_clr(self):
+        """
+        Runs the main application flow.
+        """
+        current_file_path = os.path.dirname(os.path.realpath(__file__))
+
+        # Get project root path from current file path. Keep going up one directory until we find the "setup.py" file.
+        while not os.path.exists(os.path.join(current_file_path, "setup.py")):
+            current_file_path = os.path.dirname(current_file_path)
+
+        print("Preparing the CLRNet model...")
+        self.detector = CLRNet(config_path=osp.join(current_file_path, "clr_resnet34_culane.py"), weight_path=osp.join(current_file_path, "culane_r34.pth"))
+        print("CLRNet model ready")
+
+        # List the weathers
+        weathers = [
+            # Clear
+            [carla.WeatherParameters.ClearSunset, "ClearSunset"],
+            [carla.WeatherParameters.ClearNight, "ClearNight"],
+            # Rain
+            [carla.WeatherParameters.HardRainSunset, "HardRainSunset"],
+            [carla.WeatherParameters.HardRainNight, "HardRainNight"],
+            # Cloudy
+            [carla.WeatherParameters.CloudySunset, "CloudySunset"],
+            [carla.WeatherParameters.CloudyNight, "CloudyNight"],
+            # Wet
+            [carla.WeatherParameters.WetSunset, "WetSunset"],
+            [carla.WeatherParameters.WetNight, "WetNight"],
+        ]
+
+        # Loop through the weathers
+        for weather in weathers:
+            # Set the weather
+            self.set_simulator_weather(weather[0])
+            print(f"Running the simulation with weather {weather[1]}...")
+            self.vehicle = Vehicle(self.sm, vehicle_type='model3')
+
+            sensor_queue = Queue()
+            
+            self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
+            print("Camera attached")
+
+            # Move the spectator to the vehicle
+            self.sm.move_spectator(self.vehicle.get_actor())
+            self.vehicle.set_follow_vehicle(True)
+
+            # =========================================================================================
+            # Previous variables
+            # =========================================================================================
+            t_prev = 0
+            v_prev = 0
+            a = 0
+            delta = 0
+
+            # =========================================================================================
+            # Implementing MPC
+            # =========================================================================================
+            
+            dt = 0.05
+            N = 20
+            L = self.vehicle.get_actor().bounding_box.extent.x * 2
+
+            # Test the MPC
+            mpc = ModelPredictiveController(dt=dt, N=N, L=L)
+            print(mpc.mpc)
+
+            # Generate waypoints
+            waypoints = self.sm.generate_example_waypoints(self.vehicle.get_location(), 1, 500)
+
+            # Start at the first waypoint
+            current_waypoint = waypoints[:N]
+
+            # # Live plot
+            # plt.ion()
+            # fig, axs = plt.subplots()
+            # x = np.linspace(0, 20)
+            # y = np.linspace(-15, 15)
+            # wp, = axs.plot(x, y, 'b-')
+            # wp_ref, = axs.plot(x, y, 'r-')
+            
+            # Run loop only 200 frames
+            frames = 500
+            for i in range(frames):
+                # time.sleep(0.1)  # Sleep for 0.05 seconds (i.e., 20Hz update rate)
+                # Tick the CARLA simulator
+                if self.sm.check_sync_mode(): self.sm.tick()
+
+                t = time.time()
+                start_time = t
+                v = self.vehicle.get_velocity()
+                x = self.vehicle.get_location().x
+                y = self.vehicle.get_location().y
+                yaw = self.vehicle.get_yaw()
+                STEP_TIME = t - t_prev
+
+                # Update the current waypoint
+                closest_waypoint_index = self.find_closest_waypoint_index(waypoints)
+                current_waypoint = waypoints[closest_waypoint_index:closest_waypoint_index + N]
+
+                # self.debug_waypoints(current_waypoint) # Debug the waypoints
+
+                converted_waypoints = self.map_to_local(x, y, yaw, current_waypoint) # Convert the waypoints to the vehicle reference frame
+
+                coeffs = mpc.get_coeffs(converted_waypoints) # Get the coefficients of the polynomial
+                mpc.update_coeff(coeffs) # Update the coefficients of the polynomial
+
+                # Get desired speed using curvature formula
+                k = self.curvature(coeffs, 20) # Get the curvature at x
+                v_des = self.calculate_speed(k, 30, 10) # Calculate the desired speed
+                mpc.set_desired_speed(v_des) # Set the desired speed
+
+                # Debug the desired speed using string
+                self.sm.get_world().debug.draw_string(self.vehicle.get_location() + carla.Location(x=0, y=0, z=1), 
+                                                    f'Speed: {v:.2f}/{v_des:.2f}',
+                                    draw_shadow=False, color=carla.Color(0, 255, 255), life_time=dt, persistent_lines=False)
+
+                # Set initial states
+                x0 = np.array([0, 0, 0, v, 0, 0])
+                x0 = mpc.get_initial_state(x0, a, delta, STEP_TIME, coeffs)
+
+                mpc.set_init_guess(x0, u0 = np.array([a, delta]))
+
+                # Get the control commands
+                u0 = mpc.step(x0)[:, 0]
+
+                # Apply control to the vehicle
+                a = u0[0]
+                delta = u0[1]
+
+                control = self.set_control(a, delta)
+                self.vehicle.apply_control(vehicle_control=control)
+
+                # print(control) # Print the control commands
+
+                # # Plot the waypoints with x coordinates as the x axis and y coordinates as the y axis
+                # wp.set_xdata(converted_waypoints[0])
+                # wp.set_ydata(converted_waypoints[1])
+
+                # wp_ref.set_xdata(converted_waypoints[0])
+                # wp_ref.set_ydata(np.polyval(coeffs, converted_waypoints[0]))
+
+                # # axs.relim()
+                # axs.autoscale_view(scalex=True, scaley=False)
+
+                # plt.draw()
+                # plt.pause(0.001)
+
+                # =========================================================================================
+                # Lane detector
+                # =========================================================================================
+                # Wait for the camera to process an image
+                image = sensor_queue.get()
+
+                preds = self.detector.run(image)
+
+                end_time = time.time()
+
+                self.frame_times.append(end_time - start_time)
+
+                if len(self.frame_times) > 100:
+                    self.frame_times.pop(0)
+
+                if len(self.frame_times) > 0:
+                    avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                    fps = 1.0 / avg_frame_time
+                    # Delete line
+                    print('FPS: ', fps, end='\r')
+
+                # =========================================================================================
+                # End of lane detector
+                # =========================================================================================
+                
+                t_prev = t
+                v_prev = v
+
+            # =========================================================================================
+            # Calculate the FPS
+            # =========================================================================================
+            fps_file = f"{current_file_path}/fps-clrnet.txt"
+            if len(self.frame_times) > 0:
+                avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                fps = 1.0 / avg_frame_time
+                # Write the FPS to a file for every weather
+                with open(fps_file, 'a') as f:
+                    f.write(f"{weather[1]}: {fps:.4f}\n")
+                
+                print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+
+            self.cleanup()
 
     def calculate_speed(self, curvature, max_speed, beta):
         """
@@ -256,28 +537,23 @@ class Application:
         Args:
             waypoints (list): A list of waypoints.
         """
-        debug = self.sm.get_world().debug
+        debug = self.world.debug
 
         for i in range(len(waypoints) - 1):
             # Draw a line between each pair of waypoints
             debug.draw_line(waypoints[i].transform.location, waypoints[i + 1].transform.location, 
                             thickness=0.2, color=carla.Color(255, 0, 0), persistent_lines=False, life_time=0.1)
 
-    def camera_callback(self):
+    def camera_callback(self, sensor_queue=None):
         # Create function to handle the camera data
+        # Create window to display the camera image
+        # cv2.namedWindow("Camera", cv2.WINDOW_AUTOSIZE)
         def callback(image):
-            # Create window to display the camera image
-            cv2.namedWindow("Camera", cv2.WINDOW_AUTOSIZE)
-
             # Change image into a numpy array
             image = Camera.process_data(image)
 
-            # Lane detector
-            preds = self.detector.predict(image)
-            detected_lane = self.detector.show_detection(preds)
-            # Display the detected lane combined with the region of interest
-            cv2.imshow("Camera", detected_lane)
-            cv2.waitKey(1)
+            if sensor_queue is not None:
+                sensor_queue.put(image)
 
         return callback
 
@@ -369,10 +645,13 @@ class Application:
         """
         Cleans up the simulation.
         """
+
+        # Destroy the vehicle
         self.sm.destroy()
 
         # Clear all debug lines
         self.sm.get_world().debug.draw_line(carla.Location(), carla.Location(), thickness=0.0, color=carla.Color(0, 0, 0), life_time=0.0, persistent_lines=False)
         plt.ioff()
+
         # Destroy the window
         # cv2.destroyAllWindows()

@@ -1,6 +1,7 @@
 import fire
 import os
 import subprocess
+import carla
 
 CARLA_VERSION = "0.9.12"
 
@@ -13,11 +14,13 @@ class Simulation(object):
         app = Application()
         app.test_run()
 
-    def run(self, mpc=False):
+    def run(self, model="yolo", weather="clear"):
         from .app import Application
         app = Application()
-        if mpc:
-            app.run_mpc()
+        if model == "yolo":
+            app.run_yolo()
+        elif model == "clrnet":
+            app.run_clr()
 
 class Server(object):
     """
@@ -47,7 +50,7 @@ class Server(object):
             print(f"Could not find CarlaUE4.exe at {server_executable}. Please check your CARLA installation.")
             return
 
-        command = [server_executable, "-dx11", "-carla-port={}".format(world_port), "-windowed", f"-quality-level={'Low' if low_quality else 'Epic'}", "-benchmark", "-fps=30"]
+        command = [server_executable, "-dx11", "-carla-port={}".format(world_port), "-windowed", f"-quality-level={'Low' if low_quality else 'Epic'}"]
         subprocess.Popen(command)
         print(f"CARLA server started on port {world_port} with quality level {'Low' if low_quality else 'Epic'}. CARLA version: {CARLA_VERSION}")
 

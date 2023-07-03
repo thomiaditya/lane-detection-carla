@@ -93,7 +93,8 @@ class SimulatorManager:
         waypoints = [start_waypoint]
 
         # Generate the remaining waypoints
-        for _ in range(num_waypoints - 1):
+        for i in range(num_waypoints - 1):
+
             # Get the next waypoint
             next_waypoints = start_waypoint.next(distance_between_waypoints)
 

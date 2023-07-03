@@ -10,15 +10,13 @@ mpl.rcParams['axes.grid'] = True
 
 # TODO: Tune this weights
 # TODO: Make this variables a file to be read for readability
-CTE_W = 500 # Cross Track Error Weight
-EPSI_W = 300 # Heading Error Weight
+CTE_W = 550 # Cross Track Error Weight
+EPSI_W = 560 # Heading Error Weight
 V_W = 100 # Velocity Weight
-
-A_W = 20 # Acceleration Weight
-DELTA_W = 20 # Steering Angle Weight
-
+A_W = 30 # Acceleration Weight
+DELTA_W = 250 # Steering Angle Weight
 A_RATE_W = 100 # Acceleration Rate Weight
-DELTA_RATE_W = 60 # Steering Angle Rate Weight
+DELTA_RATE_W = 240 # Steering Angle Rate Weight
 
 DESIRED_SPEED = 20 # Desired speed
 
@@ -103,7 +101,7 @@ class ModelPredictiveController:
         delta = self.model.set_variable(var_type='_u', var_name='delta', shape=(1,1))
 
         # Time-varying parameters
-        coeff = self.model.set_variable(var_type='_tvp', var_name='coeff', shape=(self.p_deg + 1, 1))
+        coeff = self.model.set_variable(var_type='_p', var_name='coeff', shape=(self.p_deg + 1, 1))
         v_des = self.model.set_variable(var_type='_p', var_name='v_des', shape=(1,1))
 
         # Model equations
@@ -194,19 +192,19 @@ class ModelPredictiveController:
         self.mpc.bounds['lower', '_u', 'delta'] = -1
         self.mpc.bounds['upper', '_u', 'delta'] = 1
 
-        tvp_temp = self.mpc.get_tvp_template()
+        # tvp_temp = self.mpc.get_tvp_template()
         p_temp = self.mpc.get_p_template(1)
 
-        def tvp_fun(t_now):
-            for i in range(self.N + 1):
-                tvp_temp['_tvp', i] = self.coeff
-            return tvp_temp
+        # def tvp_fun(t_now):
+        #     for i in range(self.N + 1):
+        #         tvp_temp['_tvp', i] = self.coeff
+        #     return tvp_temp
         
         def p_fun(t_now):
-            p_temp['_p', 0] = self.v_des
+            p_temp['_p', 0] = np.array([*self.coeff, self.v_des])
             return p_temp
         
-        self.mpc.set_tvp_fun(tvp_fun)
+        # self.mpc.set_tvp_fun(tvp_fun)
         self.mpc.set_p_fun(p_fun)
 
         # self.mpc.scaling['_u', 'a'] = 0.5
@@ -238,7 +236,7 @@ class ModelPredictiveController:
         latency = self.dt
 
         # Predict the movement long enough to cover the manuever
-        look_ahead = 3 # Look ahead distance
+        look_ahead = 4 # Look ahead distance
         cte = np.polyval(coeff, look_ahead) - x0[1] # 
         yaw_err = np.arctan(sum([coeff[-(i + 1)] * i*look_ahead**(i - 1) for i in range(1, self.p_deg + 1)])) # Using x = look_ahead to get heading angle, because we want to get the heading angle at the next time step. And also the current heading angle is 0.
 
