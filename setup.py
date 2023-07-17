@@ -21,6 +21,7 @@ setup(
         "do-mpc",
         "onnx",
         "asyncua",
+        "wandb",
         # TODO: Add more dependencies that being used in the project.
     ],
     entry_points={

@@ -21,6 +21,7 @@ class SimulatorManager:
         self.actors = []
         self.blueprint_library = None
         self.sync_mode = False
+        self.traffic_manager = None
 
         # Connect to CARLA simulator
         self.client = carla.Client(host, port)
@@ -36,6 +37,11 @@ class SimulatorManager:
 
         self.blueprint_library = self.world.get_blueprint_library()
 
+        # Set the traffic manager
+        # TODO: Implement traffic manager in CARLA for testing the model on traffic
+        self.traffic_manager = self.client.get_trafficmanager()
+        self.traffic_manager.set_global_distance_to_leading_vehicle(1.0)
+    
     def tick(self):
         """Tick the CARLA simulator."""
         self.world.tick()

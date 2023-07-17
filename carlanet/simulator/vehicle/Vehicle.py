@@ -56,6 +56,16 @@ class Vehicle:
         state['psi'] = self.get_yaw()
         state['v'] = self.get_velocity()
         return state
+    
+    def set_autopilot(self, enabled: bool, traffic_manager_port: int = 8000):
+        """
+        Sets the autopilot of the vehicle.
+
+        Parameters:
+            enabled (bool): Whether to enable the autopilot.
+            traffic_manager_port (int): The port of the traffic manager. Defaults to 8000.
+        """
+        self.vehicle_actor.set_autopilot(enabled, traffic_manager_port)
 
     def attach_sensor(self, sensor: SensorInterface, transform: carla.Transform = None, callback: callable = None):
         """

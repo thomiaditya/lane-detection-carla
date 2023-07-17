@@ -1,3 +1,4 @@
+import random
 import carla
 import time
 import cv2
@@ -5,6 +6,7 @@ import numpy as np
 import functools
 import os
 import os.path as osp
+import wandb
 from scipy.spatial import distance
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -52,9 +54,11 @@ class Application:
         self.detector = None
         self.vehicle = None
         self.world = self.sm.get_world()
+        self.wandb_instance = None
 
         self.frame_times = []
-        
+        self.vehicle_list = []
+
         self.sm.set_sync_mode(True)
 
     def set_simulator_weather(self, weather_carla):
@@ -70,6 +74,16 @@ class Application:
         weather.fog_distance = 10
         self.world.set_weather(weather_carla)
     
+    def setup_wandb(self, experiment_name, tags=[]):
+        """
+        Set up Weights and Biases.
+
+        Args:
+            project_name (str): The name of the project.
+            experiment_name (str): The name of the experiment.
+        """
+        return wandb.init(project="lane-detection-carla", name=experiment_name, tags=tags, reinit=True)
+    
     @handle_exception
     def run_yolo(self):
         """
@@ -82,24 +96,29 @@ class Application:
         # List the weathers
         weathers = [
             # Clear
-            [carla.WeatherParameters.ClearSunset, "ClearSunset"],
-            [carla.WeatherParameters.ClearNight, "ClearNight"],
+            [carla.WeatherParameters.ClearSunset, "clear_sunset"],
+            [carla.WeatherParameters.ClearNight, "clear_night"],
             # Rain
-            [carla.WeatherParameters.HardRainSunset, "HardRainSunset"],
-            [carla.WeatherParameters.HardRainNight, "HardRainNight"],
+            [carla.WeatherParameters.HardRainSunset, "hard_rain_sunset"],
+            [carla.WeatherParameters.HardRainNight, "hard_rain_night"],
             # Cloudy
-            [carla.WeatherParameters.CloudySunset, "CloudySunset"],
-            [carla.WeatherParameters.CloudyNight, "CloudyNight"],
+            [carla.WeatherParameters.CloudySunset, "cloudy_sunset"],
+            [carla.WeatherParameters.CloudyNight, "cloudy_night"],
             # Wet
-            [carla.WeatherParameters.WetSunset, "WetSunset"],
-            [carla.WeatherParameters.WetNight, "WetNight"],
+            [carla.WeatherParameters.WetSunset, "wet_sunset"],
+            [carla.WeatherParameters.WetNight, "wet_night"],
         ]
+
+        # Setup wandb
+        # FIXME: Change the experiment name
 
         # Loop through the weathers
         for weather in weathers:
+            wandb = self.setup_wandb(f"yolopv2-mpc-{weather[1]}", tags=[weather[1]])
             # Set the weather
             self.set_simulator_weather(weather[0])
             print(f"Running the simulation with weather {weather[1]}...")
+
             self.vehicle = Vehicle(self.sm, vehicle_type='model3')
 
             sensor_queue = Queue()
@@ -137,14 +156,6 @@ class Application:
             # Start at the first waypoint
             current_waypoint = waypoints[:N]
 
-            # # Live plot
-            # plt.ion()
-            # fig, axs = plt.subplots()
-            # x = np.linspace(0, 20)
-            # y = np.linspace(-15, 15)
-            # wp, = axs.plot(x, y, 'b-')
-            # wp_ref, = axs.plot(x, y, 'r-')
-            
             # Run loop only 200 frames
             frames = 500
             for i in range(frames):
@@ -197,20 +208,6 @@ class Application:
                 control = self.set_control(a, delta)
                 self.vehicle.apply_control(vehicle_control=control)
 
-                # print(control) # Print the control commands
-
-                # # Plot the waypoints with x coordinates as the x axis and y coordinates as the y axis
-                # wp.set_xdata(converted_waypoints[0])
-                # wp.set_ydata(converted_waypoints[1])
-
-                # wp_ref.set_xdata(converted_waypoints[0])
-                # wp_ref.set_ydata(np.polyval(coeffs, converted_waypoints[0]))
-
-                # # axs.relim()
-                # axs.autoscale_view(scalex=True, scaley=False)
-
-                # plt.draw()
-                # plt.pause(0.001)
 
                 # =========================================================================================
                 # Lane detector
@@ -228,11 +225,19 @@ class Application:
                 if len(self.frame_times) > 100:
                     self.frame_times.pop(0)
 
+                fps = 0
                 if len(self.frame_times) > 0:
                     avg_frame_time = sum(self.frame_times) / len(self.frame_times)
                     fps = 1.0 / avg_frame_time
                     # Delete line
                     print('FPS: ', fps, end='\r')
+                
+                # Log the metrics to wandb
+                wandb.log({
+                    f"fps": fps,
+                    f"speed": v,
+                    f"desired_speed": v_des,
+                }, step=i)
 
                 # =========================================================================================
                 # End of lane detector
@@ -253,6 +258,9 @@ class Application:
                     f.write(f"{weather[1]}: {fps:.4f}\n")
                 
                 print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+
+                # Reset the frame times
+                self.frame_times = []
 
             self.cleanup()
     
@@ -446,6 +454,99 @@ class Application:
                 print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
 
             self.cleanup()
+
+    @handle_exception
+    def run_traffic_yolo(self):
+        traffic_manager = self.sm.traffic_manager
+
+        tm_port = traffic_manager.get_port()
+
+        # Get the blueprint for a random vehicle.
+        blueprints = self.world.get_blueprint_library().filter('vehicle.*')
+        blueprints = [x for x in blueprints if not x.id.endswith('bicycle')]
+
+        # Spawn main vehicle
+        self.vehicle = Vehicle(self.sm, vehicle_type='model3')
+
+        sensor_queue = Queue()
+        
+        self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
+        print("Camera attached")
+
+        # Move the spectator to the vehicle
+        self.sm.move_spectator(self.vehicle.get_actor())
+        self.vehicle.set_follow_vehicle(True)
+        self.vehicle.set_autopilot(True, tm_port)
+
+        print("Preparing the YOLOPv2 model...")
+        self.detector = YOLOPv2(device='cuda')
+        print("YOLOPv2 model ready")
+
+        # Create a list to hold all our vehicles (so we can clean up properly later on).
+        spawn_points = self.world.get_map().get_spawn_points()
+        for _ in range(10):
+            blueprint = random.choice(blueprints)
+            # Spawn a vehicle.
+            for _ in range(10):  # Try up to 10 times.
+                try:
+                    spawn_point = random.choice(spawn_points)
+                    vehicle = self.world.spawn_actor(blueprint, spawn_point)
+                    self.vehicle_list.append(vehicle)
+                    # Set the vehicle to autopilot using Traffic Manager.
+                    vehicle.set_autopilot(True, tm_port)
+                    self.world.tick()  # Manually advance time in synchronous mode.
+                    break  # Success, so break out of the loop.
+                except RuntimeError:
+                    continue  # Try again with a different spawn point.
+
+        print('Spawned %d vehicles.' % len(self.vehicle_list))
+
+        # Run the simulation for a while to let the vehicles drive around.
+        frames = 500
+        for _ in range(frames):
+            self.sm.tick()
+            t = time.time()
+            start_time = t
+
+            self.sm.move_spectator(self.vehicle.get_actor())
+
+            # =========================================================================================
+            # Lane detector
+            # =========================================================================================
+            # Wait for the camera to process an image
+            image = sensor_queue.get()
+
+            preds = self.detector.predict(image)
+            detected_lane = self.detector.show_detection(preds)
+
+            end_time = time.time()
+
+            self.frame_times.append(end_time - start_time)
+
+            if len(self.frame_times) > 100:
+                self.frame_times.pop(0)
+
+            if len(self.frame_times) > 0:
+                avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                fps = 1.0 / avg_frame_time
+                # Delete line
+                print('FPS: ', fps, end='\r')
+
+        # =========================================================================================
+        # Calculate the FPS
+        # =========================================================================================
+        fps_file = f"fps-yolo-traffic.txt"
+        if len(self.frame_times) > 0:
+            avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+            fps = 1.0 / avg_frame_time
+            # Write the FPS to a file for every weather
+            with open(fps_file, 'a') as f:
+                f.write(f"{fps:.4f}\n")
+            
+            print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+
+        # Clean up all vehicles.
+        self.cleanup()
 
     def calculate_speed(self, curvature, max_speed, beta):
         """
@@ -646,6 +747,13 @@ class Application:
         Cleans up the simulation.
         """
 
+        if self.vehicle_list is not None:
+            print("Cleaning up vehicles...")
+            # Destroy all the vehicles
+            for vehicle in self.vehicle_list:
+                vehicle.destroy()
+            print("Vehicles cleaned up")
+            
         # Destroy the vehicle
         self.sm.destroy()
 

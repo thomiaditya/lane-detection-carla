@@ -14,13 +14,19 @@ class Simulation(object):
         app = Application()
         app.test_run()
 
-    def run(self, model="yolo", weather="clear"):
+    def run(self, model="yolo"):
         from .app import Application
         app = Application()
         if model == "yolo":
             app.run_yolo()
         elif model == "clrnet":
             app.run_clr()
+
+    def run_traffic(self, model="yolo"):
+        from .app import Application
+        app = Application()
+        if model == "yolo":
+            app.run_traffic_yolo()
 
 class Server(object):
     """
