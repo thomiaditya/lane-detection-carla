@@ -2,9 +2,7 @@
 
 ## Description
 
-CarlaNet is a private project developed to facilitate research and development in the field of autonomous driving using deep learning methodologies. This project harnesses the power of the CARLA simulator, an open-source simulator for autonomous driving research. The project is part of a larger effort, a Bachelor Thesis on implementing deep learning techniques on autonomous vehicles.
-
-Our goal with CarlaNet is to provide a structured, flexible, and easy-to-use platform for defining, training, and evaluating deep learning models in the context of autonomous driving. The project involves various stages, from sensor data acquisition and pre-processing in the CARLA environment, to the implementation of deep learning algorithms for tasks such as perception, localization, and control.
+...
 
 ## Installation
 
@@ -13,8 +11,8 @@ To set up the necessary environment for this project:
 1. Clone this repository.
 
 ```bash
-git clone https://gitlab.com/skripsi11421/carlanet.git
-cd carlanet
+git clone https://github.com/thomiaditya/lane-detection-carla.git
+cd lane-detection-carla
 ```
 
 2. Install the project along with its dependencies using the provided setup script.
@@ -43,6 +41,6 @@ Distributed under the MIT License. See `LICENSE` for more information.
 
 ## Contact
 
-Your Name - [thomiaditya@gmail.com](mailto:thomiaditya@gmail.com)
+Thomi Aditya Alhakiim - [thomiaditya@gmail.com](mailto:thomiaditya@gmail.com)
 
-Project Link: [https://gitlab.com/skripsi11421/carlanet](https://gitlab.com/skripsi11421/carlanet)
+Project Link: [https://github.com/thomiaditya/lane-detection-carla](https://github.com/thomiaditya/lane-detection-carla)
