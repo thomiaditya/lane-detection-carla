@@ -276,7 +276,7 @@ class Application:
             current_file_path = os.path.dirname(current_file_path)
 
         print("Preparing the CLRNet model...")
-        self.detector = CLRNet(config_path=osp.join(current_file_path, "clr_resnet34_culane.py"), weight_path=osp.join(current_file_path, "culane_r34.pth"))
+        self.detector = CLRNet(config_path=osp.join(current_file_path, "model", "clr_resnet34_culane.py"), weight_path=osp.join(current_file_path, "model", "culane_r34.pth"))
         print("CLRNet model ready")
 
         # List the weathers
@@ -457,96 +457,244 @@ class Application:
 
     @handle_exception
     def run_traffic_yolo(self):
-        traffic_manager = self.sm.traffic_manager
-
-        tm_port = traffic_manager.get_port()
-
-        # Get the blueprint for a random vehicle.
-        blueprints = self.world.get_blueprint_library().filter('vehicle.*')
-        blueprints = [x for x in blueprints if not x.id.endswith('bicycle')]
-
-        # Spawn main vehicle
-        self.vehicle = Vehicle(self.sm, vehicle_type='model3')
-
-        sensor_queue = Queue()
-        
-        self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
-        print("Camera attached")
-
-        # Move the spectator to the vehicle
-        self.sm.move_spectator(self.vehicle.get_actor())
-        self.vehicle.set_follow_vehicle(True)
-        self.vehicle.set_autopilot(True, tm_port)
-
         print("Preparing the YOLOPv2 model...")
         self.detector = YOLOPv2(device='cuda')
         print("YOLOPv2 model ready")
 
-        # Create a list to hold all our vehicles (so we can clean up properly later on).
-        spawn_points = self.world.get_map().get_spawn_points()
-        for _ in range(10):
-            blueprint = random.choice(blueprints)
-            # Spawn a vehicle.
-            for _ in range(10):  # Try up to 10 times.
-                try:
-                    spawn_point = random.choice(spawn_points)
-                    vehicle = self.world.spawn_actor(blueprint, spawn_point)
-                    self.vehicle_list.append(vehicle)
-                    # Set the vehicle to autopilot using Traffic Manager.
-                    vehicle.set_autopilot(True, tm_port)
-                    self.world.tick()  # Manually advance time in synchronous mode.
-                    break  # Success, so break out of the loop.
-                except RuntimeError:
-                    continue  # Try again with a different spawn point.
-
-        print('Spawned %d vehicles.' % len(self.vehicle_list))
-
         # Run the simulation for a while to let the vehicles drive around.
-        frames = 500
-        for _ in range(frames):
-            self.sm.tick()
-            t = time.time()
-            start_time = t
+        # List the weathers
+        weathers = [
+            # Clear
+            [carla.WeatherParameters.ClearSunset, "ClearSunset"],
+            [carla.WeatherParameters.ClearNight, "ClearNight"],
+            # Rain
+            [carla.WeatherParameters.HardRainSunset, "HardRainSunset"],
+            [carla.WeatherParameters.HardRainNight, "HardRainNight"],
+            # Cloudy
+            [carla.WeatherParameters.CloudySunset, "CloudySunset"],
+            [carla.WeatherParameters.CloudyNight, "CloudyNight"],
+            # Wet
+            [carla.WeatherParameters.WetSunset, "WetSunset"],
+            [carla.WeatherParameters.WetNight, "WetNight"],
+        ]
 
+        # Loop through the weathers
+        for weather in weathers:
+            # Set the weather
+            self.set_simulator_weather(weather[0])
+            print(f"Running the simulation with weather {weather[1]}...")
+
+            traffic_manager = self.sm.traffic_manager
+
+            tm_port = traffic_manager.get_port()
+
+            # Get the blueprint for a random vehicle.
+            blueprints = self.world.get_blueprint_library().filter('vehicle.*')
+            blueprints = [x for x in blueprints if not x.id.endswith('bicycle')]
+
+            # Spawn main vehicle
+            self.vehicle = Vehicle(self.sm, vehicle_type='model3')
+
+            sensor_queue = Queue()
+            
+            self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
+            print("Camera attached")
+
+            # Move the spectator to the vehicle
             self.sm.move_spectator(self.vehicle.get_actor())
+            self.vehicle.set_follow_vehicle(True)
+            self.vehicle.set_autopilot(True, tm_port)
+
+            # Create a list to hold all our vehicles (so we can clean up properly later on).
+            spawn_points = self.world.get_map().get_spawn_points()
+            for _ in range(50):
+                blueprint = random.choice(blueprints)
+                # Spawn a vehicle.
+                for _ in range(10):  # Try up to 10 times.
+                    try:
+                        spawn_point = random.choice(spawn_points)
+                        vehicle = self.world.spawn_actor(blueprint, spawn_point)
+                        self.vehicle_list.append(vehicle)
+                        # Set the vehicle to autopilot using Traffic Manager.
+                        vehicle.set_autopilot(True, tm_port)
+                        self.world.tick()  # Manually advance time in synchronous mode.
+                        break  # Success, so break out of the loop.
+                    except RuntimeError:
+                        continue  # Try again with a different spawn point.
+
+            print('Spawned %d vehicles.' % len(self.vehicle_list))
+
+            frames = 500
+            for _ in range(frames):
+                self.sm.tick()
+                t = time.time()
+                start_time = t
+
+                self.sm.move_spectator(self.vehicle.get_actor())
+
+                # =========================================================================================
+                # Lane detector
+                # =========================================================================================
+                # Wait for the camera to process an image
+                image = sensor_queue.get()
+
+                preds = self.detector.predict(image)
+                detected_lane = self.detector.show_detection(preds)
+
+                end_time = time.time()
+
+                self.frame_times.append(end_time - start_time)
+
+                if len(self.frame_times) > 100:
+                    self.frame_times.pop(0)
+
+                if len(self.frame_times) > 0:
+                    avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                    fps = 1.0 / avg_frame_time
+                    # Delete line
+                    print('FPS: ', fps, end='\r')
 
             # =========================================================================================
-            # Lane detector
+            # Calculate the FPS
             # =========================================================================================
-            # Wait for the camera to process an image
-            image = sensor_queue.get()
-
-            preds = self.detector.predict(image)
-            detected_lane = self.detector.show_detection(preds)
-
-            end_time = time.time()
-
-            self.frame_times.append(end_time - start_time)
-
-            if len(self.frame_times) > 100:
-                self.frame_times.pop(0)
-
+            fps_file = f"fps-yolo-traffic.txt"
             if len(self.frame_times) > 0:
                 avg_frame_time = sum(self.frame_times) / len(self.frame_times)
                 fps = 1.0 / avg_frame_time
-                # Delete line
-                print('FPS: ', fps, end='\r')
+                # Write the FPS to a file for every weather
+                with open(fps_file, 'a') as f:
+                    f.write(f"{weather[1]}: {fps:.4f}\n")
+                
+                print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
 
-        # =========================================================================================
-        # Calculate the FPS
-        # =========================================================================================
-        fps_file = f"fps-yolo-traffic.txt"
-        if len(self.frame_times) > 0:
-            avg_frame_time = sum(self.frame_times) / len(self.frame_times)
-            fps = 1.0 / avg_frame_time
-            # Write the FPS to a file for every weather
-            with open(fps_file, 'a') as f:
-                f.write(f"{fps:.4f}\n")
+                # Reset the frame times
+                self.frame_times = []
+
+            # Clean up all vehicles.
+            self.cleanup()
+
+    @handle_exception
+    def run_traffic_clrnet(self):
+        current_file_path = os.path.dirname(os.path.realpath(__file__))
+
+        # Get project root path from current file path. Keep going up one directory until we find the "setup.py" file.
+        while not os.path.exists(os.path.join(current_file_path, "setup.py")):
+            current_file_path = os.path.dirname(current_file_path)
+
+        print("Preparing the CLRNet model...")
+        self.detector = CLRNet(config_path=osp.join(current_file_path, "model", "clr_resnet34_culane.py"), weight_path=osp.join(current_file_path, "model", "culane_r34.pth"))
+        print("CLRNet model ready")
+
+        # Run the simulation for a while to let the vehicles drive around.
+        # List the weathers
+        weathers = [
+            # Clear
+            [carla.WeatherParameters.ClearSunset, "ClearSunset"],
+            [carla.WeatherParameters.ClearNight, "ClearNight"],
+            # Rain
+            [carla.WeatherParameters.HardRainSunset, "HardRainSunset"],
+            [carla.WeatherParameters.HardRainNight, "HardRainNight"],
+            # Cloudy
+            [carla.WeatherParameters.CloudySunset, "CloudySunset"],
+            [carla.WeatherParameters.CloudyNight, "CloudyNight"],
+            # Wet
+            [carla.WeatherParameters.WetSunset, "WetSunset"],
+            [carla.WeatherParameters.WetNight, "WetNight"],
+        ]
+
+        # Loop through the weathers
+        for weather in weathers:
+            # Set the weather
+            self.set_simulator_weather(weather[0])
+            print(f"Running the simulation with weather {weather[1]}...")
+
+            traffic_manager = self.sm.traffic_manager
+
+            tm_port = traffic_manager.get_port()
+
+            # Get the blueprint for a random vehicle.
+            blueprints = self.world.get_blueprint_library().filter('vehicle.*')
+            blueprints = [x for x in blueprints if not x.id.endswith('bicycle')]
+
+            # Spawn main vehicle
+            self.vehicle = Vehicle(self.sm, vehicle_type='model3')
+
+            sensor_queue = Queue()
             
-            print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+            self.vehicle.attach_sensor(Camera, transform=carla.Transform(carla.Location(x=1.5, z=2.4)), callback=self.camera_callback(sensor_queue))
+            print("Camera attached")
 
-        # Clean up all vehicles.
-        self.cleanup()
+            # Move the spectator to the vehicle
+            self.sm.move_spectator(self.vehicle.get_actor())
+            self.vehicle.set_follow_vehicle(True)
+            self.vehicle.set_autopilot(True, tm_port)
+
+            # Create a list to hold all our vehicles (so we can clean up properly later on).
+            spawn_points = self.world.get_map().get_spawn_points()
+            for _ in range(50):
+                blueprint = random.choice(blueprints)
+                # Spawn a vehicle.
+                for _ in range(10):  # Try up to 10 times.
+                    try:
+                        spawn_point = random.choice(spawn_points)
+                        vehicle = self.world.spawn_actor(blueprint, spawn_point)
+                        self.vehicle_list.append(vehicle)
+                        # Set the vehicle to autopilot using Traffic Manager.
+                        vehicle.set_autopilot(True, tm_port)
+                        self.world.tick()  # Manually advance time in synchronous mode.
+                        break  # Success, so break out of the loop.
+                    except RuntimeError:
+                        continue  # Try again with a different spawn point.
+
+            print('Spawned %d vehicles.' % len(self.vehicle_list))
+
+            frames = 500
+            for i in range(frames):
+                self.sm.tick()
+                t = time.time()
+                start_time = t
+
+                self.sm.move_spectator(self.vehicle.get_actor())
+
+                # =========================================================================================
+                # Lane detector
+                # =========================================================================================
+                # Wait for the camera to process an image
+                image = sensor_queue.get()
+
+                preds = self.detector.run(image)
+
+                end_time = time.time()
+
+                self.frame_times.append(end_time - start_time)
+
+                if len(self.frame_times) > 100:
+                    self.frame_times.pop(0)
+
+                if len(self.frame_times) > 0:
+                    avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                    fps = 1.0 / avg_frame_time
+                    # Delete line
+                    print(f'{i} FPS: ', fps, end='\r')
+
+            # =========================================================================================
+            # Calculate the FPS
+            # =========================================================================================
+            fps_file = f"fps-clrnet-traffic.txt"
+            if len(self.frame_times) > 0:
+                avg_frame_time = sum(self.frame_times) / len(self.frame_times)
+                fps = 1.0 / avg_frame_time
+                # Write the FPS to a file for every weather
+                with open(fps_file, 'a') as f:
+                    f.write(f"{weather[1]}: {fps:.4f}\n")
+                
+                print(f"Average FPS: {fps:.2f}. Already written to {fps_file}.")
+
+                # Reset the frame times
+                self.frame_times = []
+
+            # Clean up all vehicles.
+            self.cleanup()
 
     def calculate_speed(self, curvature, max_speed, beta):
         """
@@ -751,11 +899,17 @@ class Application:
             print("Cleaning up vehicles...")
             # Destroy all the vehicles
             for vehicle in self.vehicle_list:
-                vehicle.destroy()
+                try:
+                    vehicle.destroy()
+                except:
+                    pass
             print("Vehicles cleaned up")
             
         # Destroy the vehicle
-        self.sm.destroy()
+        try:
+            self.sm.destroy()
+        except:
+            pass
 
         # Clear all debug lines
         self.sm.get_world().debug.draw_line(carla.Location(), carla.Location(), thickness=0.0, color=carla.Color(0, 0, 0), life_time=0.0, persistent_lines=False)

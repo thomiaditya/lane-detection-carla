@@ -59,20 +59,20 @@ class CLRNet:
             data = self.net.module.heads.get_lanes(data)
         return data
     
-    def show(self, data):
+    def show(self, data, out_file=None):
         """
         Shows the output of the model.
 
         Args:
             data (dict): The output of the model.
         """
-        out_file = self.cfg.savedir 
-        if out_file:
-            out_file = osp.join(out_file, osp.basename(data['img_path']))
+        # out_file = "."
+        # if out_file:
+        #     out_file = osp.join(out_file, osp.basename(data['img_path']))
         lanes = [lane.to_array(self.cfg) for lane in data['lanes']]
-        imshow_lanes(data['ori_img'], lanes, show=self.cfg.show, out_file=out_file)
+        imshow_lanes(np.zeros((720, 1280)), lanes, show=True, out_file=out_file)
 
-    def run(self, carla_img):
+    def run(self, carla_img, out_file=None):
         """
         Runs the model on the given image.
 
@@ -85,5 +85,6 @@ class CLRNet:
         data = self.preprocess(carla_img)
         data['lanes'] = self.inference(data)[0]
         # if self.cfg.show or self.cfg.savedir:
-        #     self.show(data)
+        if out_file: 
+            self.show(data, out_file=out_file)
         return data

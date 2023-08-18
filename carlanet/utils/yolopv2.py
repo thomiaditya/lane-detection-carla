@@ -203,10 +203,10 @@ def show_seg_result(img, result, palette=None,is_demo=False):
         for label, color in enumerate(palette):
             color_seg[result == label, :] = color
     else:
-        color_area = np.zeros((result[0].shape[0], result[0].shape[1], 3), dtype=np.uint8)
+        color_area = np.zeros((result[0].shape[0], result[0].shape[1], 1), dtype=np.uint8)
         
-        color_area[result[0] == 1] = [0, 255, 0]
-        color_area[result[1] ==1] = [255, 0, 0]
+        # color_area[result[0] == 1] = [0, 255, 0]
+        color_area[result[1] == 1] = 255
         color_seg = color_area
 
     # convert to BGR
@@ -217,7 +217,7 @@ def show_seg_result(img, result, palette=None,is_demo=False):
     # img = img * 0.5 + color_seg * 0.5
     #img = img.astype(np.uint8)
     #img = cv2.resize(img, (1280,720), interpolation=cv2.INTER_LINEAR)
-    return img
+    return color_seg
 
 
 def increment_path(path, exist_ok=True, sep=''):

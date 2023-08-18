@@ -1,0 +1,9 @@
+ClearSunset: 0.1146
+ClearSunset: 0.1139
+ClearNight: 0.1155
+HardRainSunset: 0.1100
+HardRainNight: 0.1001
+CloudySunset: 0.1212
+CloudyNight: 0.1173
+WetSunset: 0.1277
+WetNight: 0.1249

@@ -26,7 +26,11 @@ class Simulation(object):
         from .app import Application
         app = Application()
         if model == "yolo":
+            print("Running model: yolo")
             app.run_traffic_yolo()
+        elif model == "clrnet":
+            print("Running model: clrnet")
+            app.run_traffic_clrnet()
 
 class Server(object):
     """

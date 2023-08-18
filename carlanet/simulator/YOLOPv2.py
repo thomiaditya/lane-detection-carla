@@ -76,7 +76,18 @@ class YOLOPv2:
         lane_mask = lane_line_mask(lane_detection)
         d_area_mask = driving_area_mask(segmentations)
 
-        return show_seg_result(r_img, (d_area_mask, lane_mask), is_demo=True)
+        mask = show_seg_result(r_img, (d_area_mask, lane_mask), is_demo=True)
+
+        # Define a structuring element for erosion
+        kernel = np.ones((5,5),np.uint8)
+
+        # Apply erosion
+        eroded_mask = cv2.erode(mask, kernel, iterations=1)
+
+        # Smoothen the eroded mask using Gaussian blur
+        smooth_mask = cv2.GaussianBlur(eroded_mask, (5, 5), 0)
+
+        return smooth_mask
 
     def transform_image(self, image: np.ndarray) -> np.ndarray:
         """
