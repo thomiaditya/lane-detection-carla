@@ -2,7 +2,7 @@
 
 ## Description
 
-This research project focuses on the performance evaluation of two object detection models, [https://github.com/CAIC-AD/YOLOPv2]{YOLOPv2} and [https://github.com/Turoad/CLRNet]{CLRNet}, for their potential application in autonomous vehicles. Both models were rigorously tested across various scenarios to determine their accuracy, speed, and reliability in diverse conditions. The results of this research will be used to inform the development of a lane detection model for autonomous vehicles.
+This research project focuses on the performance evaluation of two object detection models, [https://github.com/CAIC-AD/YOLOPv2](YOLOPv2) and [https://github.com/Turoad/CLRNet](CLRNet), for their potential application in autonomous vehicles. Both models were rigorously tested across various scenarios to determine their accuracy, speed, and reliability in diverse conditions. The results of this research will be used to inform the development of a lane detection model for autonomous vehicles.
 
 ## Installation
 
