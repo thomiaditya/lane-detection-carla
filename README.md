@@ -2,7 +2,7 @@
 
 ## Description
 
-...
+This research project focuses on the performance evaluation of two object detection models, [https://github.com/CAIC-AD/YOLOPv2]{YOLOPv2} and [https://github.com/Turoad/CLRNet]{CLRNet}, for their potential application in autonomous vehicles. Both models were rigorously tested across various scenarios to determine their accuracy, speed, and reliability in diverse conditions. The results of this research will be used to inform the development of a lane detection model for autonomous vehicles.
 
 ## Installation
 
@@ -27,9 +27,10 @@ pip install .
 carlanet install_carla
 ```
 
-## Usage
+## Special Thanks
 
-CarlaNet is designed to be flexible and user-friendly. It includes a variety of scripts for data handling, model creation, training, evaluation, and visualization. Specific usage instructions and examples will be provided in the corresponding script documentation.
+- CARLA Simulator for providing the environment for this project.
+- CLRNet and YOLOPv2 for allowing me to use their model for this project.
 
 ## Contributing
 
